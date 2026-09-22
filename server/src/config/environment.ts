@@ -1,3 +1,10 @@
+import { parseDateOnly } from '../common/date-only';
+import {
+  NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION,
+  OVERDUE_CHARGE_POLICY_ACTIVATION_DATE,
+  OVERDUE_CHARGE_POLICY_V1,
+} from '../loans/loan-charge-policy.constants';
+
 type Environment = Record<string, string | undefined>;
 
 const PRODUCTION_REQUIRED_VARIABLES = [
@@ -53,6 +60,7 @@ export function parseAllowedOrigins(value: string | undefined): string[] {
 export function validateEnvironment(environment: Environment): Environment {
   if (!isProduction(environment)) {
     validateBooleanVariables(environment);
+    validateLoanChargeConfiguration(environment);
     if (environment.CLIENT_URL?.trim()) {
       parseAllowedOrigins(environment.CLIENT_URL);
     }
@@ -69,6 +77,7 @@ export function validateEnvironment(environment: Environment): Environment {
   }
 
   validateBooleanVariables(environment);
+  validateLoanChargeConfiguration(environment);
   validatePort(environment.PORT);
   validateDatabaseUrl(environment.DATABASE_URL, true);
   validateCertificate(environment.DATABASE_SSL_CA_BASE64);
@@ -150,11 +159,61 @@ function validateBooleanVariables(environment: Environment): void {
     'TYPEORM_RUN_MIGRATIONS',
     'SMS_ENABLED',
     'SMS_WORKER_ENABLED',
+    'LOAN_CHARGE_SCHEDULER_ENABLED',
   ]) {
     const value = environment[key]?.trim();
     if (value && value !== 'true' && value !== 'false') {
       throw new Error(`${key} must be true or false.`);
     }
+  }
+}
+
+function validateLoanChargeConfiguration(environment: Environment): void {
+  const version = environment[NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION]?.trim();
+  const activationDate =
+    environment[OVERDUE_CHARGE_POLICY_ACTIVATION_DATE]?.trim();
+
+  if (Boolean(version) !== Boolean(activationDate)) {
+    throw new Error(
+      `${NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION} and ${OVERDUE_CHARGE_POLICY_ACTIVATION_DATE} must be configured together.`,
+    );
+  }
+  if (version && version !== OVERDUE_CHARGE_POLICY_V1) {
+    throw new Error(
+      `${NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION} must be ${OVERDUE_CHARGE_POLICY_V1}.`,
+    );
+  }
+  if (activationDate) {
+    try {
+      parseDateOnly(activationDate);
+    } catch {
+      throw new Error(
+        `${OVERDUE_CHARGE_POLICY_ACTIVATION_DATE} must use a valid YYYY-MM-DD date.`,
+      );
+    }
+  }
+
+  if (isEnabled(environment.LOAN_CHARGE_SCHEDULER_ENABLED) && !version) {
+    throw new Error(
+      'LOAN_CHARGE_SCHEDULER_ENABLED requires an active new-loan charge policy.',
+    );
+  }
+
+  validatePositiveInteger(
+    environment.LOAN_CHARGE_POLL_INTERVAL_MS,
+    'LOAN_CHARGE_POLL_INTERVAL_MS',
+  );
+  validatePositiveInteger(
+    environment.LOAN_CHARGE_BATCH_SIZE,
+    'LOAN_CHARGE_BATCH_SIZE',
+  );
+}
+
+function validatePositiveInteger(value: string | undefined, key: string): void {
+  if (!value?.trim()) return;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${key} must be a positive integer.`);
   }
 }
 

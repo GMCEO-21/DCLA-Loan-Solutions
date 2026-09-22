@@ -21,10 +21,16 @@ import { ApplyLoanWaiverDto } from './dto/apply-loan-waiver.dto';
 import { FindMemberLoansQueryDto } from './dto/find-member-loans-query.dto';
 import { ROLE } from '../auth/roles.constants';
 import { Roles } from '../auth/roles.decorator';
+import { LoanChargesService } from './loan-charges.service';
+import { LoanChargeSweepService } from './loan-charge-sweep.service';
 
 @Controller('loans')
 export class LoansController {
-  constructor(private readonly loansService: LoansService) {}
+  constructor(
+    private readonly loansService: LoansService,
+    private readonly loanChargesService: LoanChargesService,
+    private readonly loanChargeSweepService: LoanChargeSweepService,
+  ) {}
 
   @Roles(ROLE.LoanProcessor)
   @Post()
@@ -54,6 +60,22 @@ export class LoansController {
   @Get('waivers/candidates')
   getWaiverCandidates() {
     return this.loansService.getWaiverCandidates();
+  }
+
+  @Roles(ROLE.Manager)
+  @Post('charges/sweep')
+  runChargeSweep(@Req() req: { user?: { userId?: string } }) {
+    return this.loanChargeSweepService.run(
+      undefined,
+      'manual',
+      req.user?.userId,
+    );
+  }
+
+  @Roles(ROLE.Manager, ROLE.Cashier, ROLE.LoanProcessor)
+  @Get(':id/charges')
+  getCharges(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.loanChargesService.getBreakdown(id);
   }
 
   @Roles(ROLE.Manager)

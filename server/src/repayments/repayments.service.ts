@@ -37,6 +37,7 @@ import {
   repaymentSavingsReversalIdempotencyKey,
   SAVINGS_REFERENCE_TYPE,
 } from '../savings/savings-ledger.utils';
+import { LoanChargesService } from '../loans/loan-charges.service';
 
 export interface PendingRepaymentCollectionGroup {
   batchId: string | null;
@@ -69,6 +70,13 @@ export interface RepaymentScheduleRepairSummary {
   approvedRepaymentsReplayed: number;
 }
 
+export interface RepaymentAllocationPreview {
+  repaymentId: string;
+  loanId: string;
+  asOfDate: string;
+  allocation: ReturnType<LoanChargesService['previewPaymentAllocation']>;
+}
+
 @Injectable()
 export class RepaymentsService implements OnModuleInit {
   constructor(
@@ -91,6 +99,7 @@ export class RepaymentsService implements OnModuleInit {
     @InjectRepository(CollectionBatch)
     private readonly collectionBatchRepo: Repository<CollectionBatch>,
     private readonly loansService: LoansService,
+    private readonly loanChargesService: LoanChargesService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -778,6 +787,24 @@ export class RepaymentsService implements OnModuleInit {
     if (!schedules.length) return;
 
     const scheduleIds = schedules.map((s) => s.id);
+    const preservedAllocations = await this.allocationRepo.find({
+      where: { scheduleId: In(scheduleIds) },
+    });
+    const preservedByRepayment = preservedAllocations.reduce(
+      (totals, allocation) => {
+        const current = totals.get(allocation.repaymentId) ?? {
+          amount: 0,
+          cash: 0,
+          savings: 0,
+        };
+        current.amount += Number(allocation.amountApplied || 0);
+        current.cash += Number(allocation.cashPortion || 0);
+        current.savings += Number(allocation.savingsPortion || 0);
+        totals.set(allocation.repaymentId, current);
+        return totals;
+      },
+      new Map<string, { amount: number; cash: number; savings: number }>(),
+    );
     await this.allocationRepo.delete({ scheduleId: In(scheduleIds) });
 
     for (const schedule of schedules) {
@@ -835,14 +862,44 @@ export class RepaymentsService implements OnModuleInit {
     });
 
     for (const repayment of approvedPayments) {
+      const preserved = preservedByRepayment.get(repayment.id);
+      const chargeAllocation = preserved
+        ? { total: 0, cash: 0, savings: 0 }
+        : await this.loanChargesService.getRecordedPaymentAllocation(
+            repayment.id,
+          );
+      const savingsDebit = preserved
+        ? null
+        : await this.savingsRepo.findOne({
+            where: {
+              idempotencyKey: repaymentSavingsDebitIdempotencyKey(repayment.id),
+            },
+          });
+      const totalSavings = preserved
+        ? preserved.savings
+        : Math.abs(Number(savingsDebit?.amount || 0));
+      const allocationAmount = preserved
+        ? preserved.amount
+        : Math.max(
+            0,
+            Number(repayment.amount || 0) +
+              totalSavings -
+              chargeAllocation.total,
+          );
+      const cashPortion = preserved
+        ? preserved.cash
+        : Math.max(0, Number(repayment.amount || 0) - chargeAllocation.cash);
+      const savingsPortion = preserved
+        ? preserved.savings
+        : Math.max(0, totalSavings - chargeAllocation.savings);
       await this.applyRepaymentToSchedule({
         loan,
         member,
         center,
         repayment,
-        allocationAmount: Number(repayment.amount || 0),
-        cashPortion: Number(repayment.amount || 0),
-        savingsPortion: 0,
+        allocationAmount,
+        cashPortion,
+        savingsPortion,
         paymentDate: repayment.paymentDate,
       });
     }
@@ -1166,6 +1223,86 @@ export class RepaymentsService implements OnModuleInit {
     });
   }
 
+  async getAllocationPreview(id: string): Promise<RepaymentAllocationPreview> {
+    const repaymentReference = await this.repaymentRepo.findOne({
+      where: { id },
+      relations: ['loan'],
+    });
+    if (!repaymentReference) throw new NotFoundException('Repayment not found');
+    if (repaymentReference.status !== RepaymentStatus.PENDING) {
+      throw new BadRequestException(
+        'Allocation preview is available only for pending repayments',
+      );
+    }
+    if (repaymentReference.operationType === RepaymentOperationType.REVERSAL) {
+      throw new BadRequestException(
+        'Allocation preview is available only for payment repayments',
+      );
+    }
+    const loanId = repaymentReference.loan?.id;
+    if (!loanId) throw new NotFoundException('Loan not found');
+
+    const queryRunner =
+      this.repaymentRepo.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const manager = queryRunner.manager;
+      const loanRepository = manager.getRepository(Loan);
+      const repaymentRepository = manager.getRepository(Repayment);
+      await loanRepository
+        .createQueryBuilder('loan')
+        .setLock('pessimistic_write')
+        .where('loan.id = :loanId', { loanId })
+        .getOne();
+      await repaymentRepository
+        .createQueryBuilder('repayment')
+        .setLock('pessimistic_write')
+        .where('repayment.id = :id', { id })
+        .getOne();
+      const [loan, repayment] = await Promise.all([
+        loanRepository.findOne({ where: { id: loanId } }),
+        repaymentRepository.findOne({ where: { id } }),
+      ]);
+      if (!loan) throw new NotFoundException('Loan not found');
+      if (!repayment) throw new NotFoundException('Repayment not found');
+
+      const asOfDate = getFinancialBusinessDate();
+      const collectionDate =
+        repayment.collectionDate ??
+        this.normalizeCollectionDate(repayment.createdAt.toISOString());
+      await this.loanChargesService.postDueChargesForLoan(
+        loan.id,
+        asOfDate,
+        manager,
+        {
+          id: repayment.id,
+          collectionDate,
+          cashAmount: Number(repayment.amount),
+          useSavings: Boolean(repayment.useSavings),
+        },
+      );
+      const projectedLoan = await loanRepository.findOne({
+        where: { id: loan.id },
+      });
+      if (!projectedLoan) throw new NotFoundException('Loan not found');
+      const allocation = this.loanChargesService.previewPaymentAllocation(
+        projectedLoan,
+        Number(repayment.amount),
+        Boolean(repayment.useSavings),
+      );
+      await queryRunner.rollbackTransaction();
+      return { repaymentId: id, loanId, asOfDate, allocation };
+    } catch (error) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   private async approvePaymentRepayment(
     repayment: Repayment,
     loan: Loan,
@@ -1179,8 +1316,22 @@ export class RepaymentsService implements OnModuleInit {
       throw new NotFoundException('Member not found');
     }
 
-    const previousAmountPaid = Number(loan.amountPaid ?? 0);
-    await this.loansService.applyRepayment(
+    const appliedDate =
+      repayment.collectionDate ??
+      this.normalizeCollectionDate(repayment.createdAt.toISOString());
+    await this.loanChargesService.postDueChargesForLoan(
+      loan.id,
+      businessDate,
+      manager,
+      {
+        id: repayment.id,
+        collectionDate: appliedDate,
+        cashAmount: Number(repayment.amount),
+        useSavings: Boolean(repayment.useSavings),
+      },
+    );
+
+    const application = await this.loansService.applyRepaymentWithAllocation(
       loan.id,
       Number(repayment.amount),
       Boolean(repayment.useSavings),
@@ -1200,12 +1351,9 @@ export class RepaymentsService implements OnModuleInit {
 
     await this.ensureLoanSchedule(targetLoan, member, center, manager);
 
-    const cumulativeAmountPaid = Number(targetLoan.amountPaid) || 0;
-    const newlyAppliedAmount = cumulativeAmountPaid - previousAmountPaid;
+    const newlyAppliedAmount = application.allocation.contractual.amount;
 
     if (newlyAppliedAmount > 0) {
-      const cashPortion = Number(repayment.amount);
-      const savingsPortion = Math.max(0, newlyAppliedAmount - cashPortion);
       await this.applyRepaymentToSchedule(
         {
           loan: targetLoan,
@@ -1213,11 +1361,9 @@ export class RepaymentsService implements OnModuleInit {
           center,
           repayment,
           allocationAmount: newlyAppliedAmount,
-          cashPortion,
-          savingsPortion,
-          paymentDate:
-            repayment.collectionDate ??
-            this.normalizeCollectionDate(repayment.createdAt.toISOString()),
+          cashPortion: application.allocation.contractual.cashPortion,
+          savingsPortion: application.allocation.contractual.savingsPortion,
+          paymentDate: appliedDate,
         },
         manager,
       );
@@ -1245,7 +1391,12 @@ export class RepaymentsService implements OnModuleInit {
       manager,
     );
 
-    return this.markRepaymentApproved(repayment, actorId, manager);
+    const approved = await this.markRepaymentApproved(
+      repayment,
+      actorId,
+      manager,
+    );
+    return Object.assign(approved, { allocation: application.allocation });
   }
 
   private async approveReversalRepayment(
@@ -1312,17 +1463,27 @@ export class RepaymentsService implements OnModuleInit {
     const originalAllocations = await allocationRepository.find({
       where: { repaymentId: original.id },
     });
+    const chargeReversal =
+      await this.loanChargesService.reversePaymentAllocation(
+        loan,
+        original.id,
+        reversal.id,
+        manager,
+      );
 
     const totalApplied = originalAllocations.length
       ? originalAllocations.reduce(
           (sum, allocation) => sum + Number(allocation.amountApplied || 0),
           0,
         )
-      : Number(original.amount || 0);
-    const savingsUsed = originalAllocations.reduce(
-      (sum, allocation) => sum + Number(allocation.savingsPortion || 0),
-      0,
-    );
+      : this.loanChargesService.isEligible(loan)
+        ? 0
+        : Number(original.amount || 0);
+    const savingsUsed =
+      originalAllocations.reduce(
+        (sum, allocation) => sum + Number(allocation.savingsPortion || 0),
+        0,
+      ) + chargeReversal.savingsReversed;
     const originalSavingsDebit =
       savingsUsed > 0
         ? await savingsRepository.findOne({
@@ -1391,9 +1552,13 @@ export class RepaymentsService implements OnModuleInit {
       (savingsBalanceBefore + Number(savingsUsed || 0)).toFixed(2),
     );
     loan.savings = savingsBalanceAfter;
-    if (loan.balance === 0) {
+    const chargeOutstanding = this.loanChargesService.getOutstanding(loan);
+    if (loan.balance === 0 && chargeOutstanding.totalOutstanding === 0) {
       loan.status = 'paid';
-    } else if (loan.status === 'paid') {
+    } else if (
+      loan.status === 'paid' &&
+      (loan.balance > 0 || chargeOutstanding.totalOutstanding > 0)
+    ) {
       loan.status = 'active';
     }
     await manager.getRepository(Loan).save(loan);

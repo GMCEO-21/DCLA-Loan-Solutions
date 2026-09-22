@@ -17,6 +17,7 @@ function productionEnvironment() {
     TYPEORM_RUN_MIGRATIONS: 'false',
     SMS_ENABLED: 'false',
     SMS_WORKER_ENABLED: 'false',
+    LOAN_CHARGE_SCHEDULER_ENABLED: 'false',
   };
 }
 
@@ -67,6 +68,42 @@ describe('validateEnvironment', () => {
       expect(message).not.toContain('private-access-secret');
       expect(message).not.toContain('private-refresh-secret');
     }
+  });
+
+  it('requires the overdue policy version and activation date together', () => {
+    expect(() =>
+      validateEnvironment({
+        ...productionEnvironment(),
+        NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION: 'DCLA_2026_V1',
+      }),
+    ).toThrow('must be configured together');
+  });
+
+  it('accepts the supported overdue policy with a valid activation date', () => {
+    const environment = {
+      ...productionEnvironment(),
+      NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION: 'DCLA_2026_V1',
+      OVERDUE_CHARGE_POLICY_ACTIVATION_DATE: '2026-10-01',
+    };
+    expect(validateEnvironment(environment)).toBe(environment);
+  });
+
+  it('rejects invalid loan charge worker configuration', () => {
+    expect(() =>
+      validateEnvironment({
+        ...productionEnvironment(),
+        LOAN_CHARGE_BATCH_SIZE: '0',
+      }),
+    ).toThrow('LOAN_CHARGE_BATCH_SIZE must be a positive integer');
+  });
+
+  it('does not allow the charge worker without controlled enrollment', () => {
+    expect(() =>
+      validateEnvironment({
+        ...productionEnvironment(),
+        LOAN_CHARGE_SCHEDULER_ENABLED: 'true',
+      }),
+    ).toThrow('requires an active new-loan charge policy');
   });
 });
 

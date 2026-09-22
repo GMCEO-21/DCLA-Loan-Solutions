@@ -54,3 +54,25 @@ export interface PendingCollectionApprovalResult {
   approvedCount: number;
   approvedPaymentIds: string[];
 }
+
+export interface PaymentAllocationBucket {
+  amount: number;
+  cashPortion: number;
+  savingsPortion: number;
+}
+
+export interface RepaymentAllocationPreview {
+  repaymentId: string;
+  loanId: string;
+  asOfDate: string;
+  allocation: {
+    eligible: boolean;
+    cashReceived: number;
+    savingsUsed: number;
+    totalApplied: number;
+    penalty: PaymentAllocationBucket;
+    pastDueInterest: PaymentAllocationBucket;
+    contractual: PaymentAllocationBucket;
+    unapplied: number;
+  };
+}

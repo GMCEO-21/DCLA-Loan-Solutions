@@ -33,10 +33,14 @@ export interface Loan {
   savings: number;
   weeksPaid: number;
   pastDueInterestAccrued?: number;
+  pastDueInterestPaid?: number;
   pastDueInterestWaived?: number;
   penaltyAccrued?: number;
+  penaltyPaid?: number;
   penaltyWaived?: number;
-  status: 'active' | 'paid' | 'defaulted' | 'netoff' | 'payoff';
+  overdueChargePolicyVersion?: string | null;
+  overdueChargePolicyEffectiveDate?: string | null;
+  status: "active" | "paid" | "defaulted" | "netoff" | "payoff";
   netCashReleased?: number | null;
   loanCreatedDate?: Date;
   createdAt: Date;
@@ -67,13 +71,70 @@ export interface LoanWaiverCandidate {
   status: Loan["status"];
   balance: number;
   pastDueInterestAccrued: number;
+  pastDueInterestPaid: number;
   pastDueInterestWaived: number;
   penaltyAccrued: number;
+  penaltyPaid: number;
   penaltyWaived: number;
   pastDueInterestOutstanding: number;
   penaltyOutstanding: number;
   totalOutstanding: number;
   updatedAt: string;
+}
+
+export type LoanChargeType =
+  "weekly_penalty" | "maturity_penalty" | "past_due_interest";
+
+export type LoanChargeEventType = "accrual" | "payment" | "payment_reversal";
+
+export interface LoanChargeLedgerEntry {
+  id: string;
+  policyVersion: string;
+  chargeType: LoanChargeType;
+  eventType: LoanChargeEventType;
+  amount: number | string;
+  cashPortion: number | string;
+  savingsPortion: number | string;
+  baseAmount: number | string;
+  rate: number | string;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  sourceRepaymentId?: string | null;
+  reversedLedgerEntryId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface LoanChargeBreakdown {
+  loanId: string;
+  policyVersion: string | null;
+  policyEffectiveDate: string | null;
+  eligible: boolean;
+  legacy: boolean;
+  penaltyAccrued: number;
+  penaltyPaid: number;
+  penaltyWaived: number;
+  penaltyOutstanding: number;
+  pastDueInterestAccrued: number;
+  pastDueInterestPaid: number;
+  pastDueInterestWaived: number;
+  pastDueInterestOutstanding: number;
+  totalOutstanding: number;
+  entries: LoanChargeLedgerEntry[];
+  reconciliation: { reconciled: boolean } | null;
+}
+
+export interface LoanChargeSweepResponse {
+  acquired: boolean;
+  result: {
+    asOfDate: string;
+    scannedCount: number;
+    processedCount: number;
+    chargeCount: number;
+    skippedPendingCount: number;
+    failedCount: number;
+    failures: Array<{ loanId: string; message: string }>;
+  } | null;
 }
 
 export interface ApplyLoanWaiverPayload {
@@ -166,12 +227,7 @@ export interface LoansResponse {
 }
 
 export type MemberLoanStatusFilter =
-  | "all"
-  | "active"
-  | "paid"
-  | "defaulted"
-  | "netoff"
-  | "payoff";
+  "all" | "active" | "paid" | "defaulted" | "netoff" | "payoff";
 
 export interface MemberLoansQuery {
   status?: MemberLoanStatusFilter;
@@ -191,7 +247,7 @@ export interface LoanStatsResponse {
   stats: LoanStats;
 }
 
-export type LoanRepaymentStatus = 'unpaid' | 'partial' | 'paid' | 'advance';
+export type LoanRepaymentStatus = "unpaid" | "partial" | "paid" | "advance";
 
 export interface LoanRepaymentScheduleRow {
   id: string;

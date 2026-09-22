@@ -60,3 +60,24 @@ export function addDaysToDateOnly(date: DateOnlyParts, days: number): string {
   const day = String(result.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
+export function differenceInDateOnlyDays(start: string, end: string): number {
+  const startDate = parseDateOnly(start);
+  const endDate = parseDateOnly(end);
+  return Math.trunc(
+    (endDate.utcTimestamp - startDate.utcTimestamp) / (24 * 60 * 60 * 1000),
+  );
+}
+
+export function laterDateOnly(left: string, right: string): string {
+  parseDateOnly(left);
+  parseDateOnly(right);
+  return left >= right ? left : right;
+}
+
+export function getWeeklyPenaltyAssessmentDate(dueDate: string): string {
+  const due = parseDateOnly(dueDate);
+  const fridayIndex = 5;
+  const daysUntilFriday = (fridayIndex - due.weekdayIndex + 7) % 7;
+  return addDaysToDateOnly(due, daysUntilFriday + 1);
+}

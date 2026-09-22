@@ -11,8 +11,17 @@ import { LoanWaiver } from './entities/loan-waiver.entity';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { EntityManager, Repository } from 'typeorm';
 import { SavingsEventType } from '../savings/savings.entity';
+import { LoanChargePolicyService } from './loan-charge-policy.service';
+import { LoanChargesService } from './loan-charges.service';
 
-function createLoanWriterHarness(seedLoans: Loan[] = []) {
+function createLoanWriterHarness(
+  seedLoans: Loan[] = [],
+  enrollment: {
+    version: 'DCLA_2026_V1';
+    effectiveDate: string;
+  } | null = null,
+  policyEligible = false,
+) {
   const member = { id: 'member-1' } as Member;
   const loans = seedLoans.map((loan) => ({ ...loan, borrower: member }));
   const entries: Savings[] = [];
@@ -71,6 +80,13 @@ function createLoanWriterHarness(seedLoans: Loan[] = []) {
     }),
   };
   const collectionRepository = { update: jest.fn().mockResolvedValue({}) };
+  const scheduleRepository = {
+    delete: jest.fn().mockResolvedValue({ affected: 0 }),
+    create: jest.fn(
+      (value: Partial<LoanRepaymentSchedule>) => value as LoanRepaymentSchedule,
+    ),
+    save: jest.fn(async (value: LoanRepaymentSchedule[]) => value),
+  };
   const manager = {
     getRepository: jest.fn((entity) => {
       if (entity === Loan) return loanRepository;
@@ -79,20 +95,68 @@ function createLoanWriterHarness(seedLoans: Loan[] = []) {
       }
       if (entity === Collection) return collectionRepository;
       if (entity === Savings) return savingsRepository;
+      if (entity === LoanRepaymentSchedule) return scheduleRepository;
       throw new Error('Unexpected repository');
     }),
   } as unknown as EntityManager;
 
+  const loanChargesService = {
+    isEligible: jest.fn().mockReturnValue(policyEligible),
+    previewPaymentAllocation: jest.fn().mockReturnValue({
+      eligible: policyEligible,
+      cashReceived: 300,
+      savingsUsed: 0,
+      totalApplied: 300,
+      penalty: { amount: 100, cashPortion: 100, savingsPortion: 0 },
+      pastDueInterest: { amount: 20, cashPortion: 20, savingsPortion: 0 },
+      contractual: { amount: 180, cashPortion: 180, savingsPortion: 0 },
+      unapplied: 0,
+    }),
+    recordPaymentAllocation: jest.fn(async (loan: Loan) => {
+      loan.penaltyPaid = 100;
+      loan.pastDueInterestPaid = 20;
+    }),
+    getOutstanding: jest.fn().mockImplementation((loan: Loan) => ({
+      penaltyOutstanding: Math.max(
+        0,
+        Number(loan.penaltyAccrued || 0) - Number(loan.penaltyPaid || 0),
+      ),
+      pastDueInterestOutstanding: Math.max(
+        0,
+        Number(loan.pastDueInterestAccrued || 0) -
+          Number(loan.pastDueInterestPaid || 0),
+      ),
+      totalOutstanding: Math.max(
+        0,
+        Number(loan.penaltyAccrued || 0) -
+          Number(loan.penaltyPaid || 0) +
+          Number(loan.pastDueInterestAccrued || 0) -
+          Number(loan.pastDueInterestPaid || 0),
+      ),
+    })),
+  };
   const service = new LoansService(
     loanRepository as unknown as Repository<Loan>,
     {} as Repository<Member>,
     collectionRepository as unknown as Repository<Collection>,
     savingsRepository as unknown as Repository<Savings>,
-    {} as Repository<LoanRepaymentSchedule>,
+    scheduleRepository as unknown as Repository<LoanRepaymentSchedule>,
     {} as Repository<LoanWaiver>,
+    {
+      resolveEnrollment: jest.fn().mockReturnValue(enrollment),
+      isEligible: jest.fn().mockReturnValue(policyEligible),
+    } as unknown as LoanChargePolicyService,
+    loanChargesService as unknown as LoanChargesService,
   );
 
-  return { service, loans, entries, manager };
+  return {
+    service,
+    loans,
+    entries,
+    manager,
+    scheduleRepository,
+    loanChargesService,
+  };
 }
 
 describe('LoansService', () => {
@@ -131,6 +195,17 @@ describe('LoansService', () => {
         { provide: getRepositoryToken(Savings), useValue: {} },
         { provide: getRepositoryToken(LoanRepaymentSchedule), useValue: {} },
         { provide: getRepositoryToken(LoanWaiver), useValue: {} },
+        {
+          provide: LoanChargePolicyService,
+          useValue: {
+            resolveEnrollment: jest.fn().mockReturnValue(null),
+            isEligible: jest.fn().mockReturnValue(false),
+          },
+        },
+        {
+          provide: LoanChargesService,
+          useValue: { isEligible: jest.fn().mockReturnValue(false) },
+        },
       ],
     }).compile();
 
@@ -321,6 +396,32 @@ describe('LoansService', () => {
       });
     });
 
+    it('stores immutable policy enrollment on an eligible new loan', async () => {
+      const harness = createLoanWriterHarness([], {
+        version: 'DCLA_2026_V1',
+        effectiveDate: '2026-10-01',
+      });
+
+      const loan = await harness.service.create({
+        ...createDto(500),
+        loanCreatedDate: '2026-10-01',
+      });
+
+      expect(loan).toMatchObject({
+        overdueChargePolicyVersion: 'DCLA_2026_V1',
+        overdueChargePolicyEffectiveDate: '2026-10-01',
+      });
+      expect(harness.scheduleRepository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps legacy loans explicitly unenrolled', async () => {
+      const harness = createLoanWriterHarness();
+      const loan = await harness.service.create(createDto(500));
+
+      expect(loan.overdueChargePolicyVersion).toBeNull();
+      expect(loan.overdueChargePolicyEffectiveDate).toBeNull();
+    });
+
     it('records only the new contribution for a later normal loan', async () => {
       const prior = {
         id: 'loan-1',
@@ -492,6 +593,54 @@ describe('LoansService', () => {
 
       expect(Number(harness.loans[0].savings)).toBe(5000);
       expect(harness.entries).toHaveLength(0);
+    });
+  });
+
+  describe('policy-enrolled repayment allocation', () => {
+    it('keeps charge payments out of contractual amountPaid and balance', async () => {
+      const loan = {
+        id: 'loan-1',
+        status: 'active',
+        weeklyPaymentAmount: 500,
+        amountPaid: 0,
+        balance: 1000,
+        totalAmount: 1000,
+        termWeeks: 2,
+        weeksPaid: 0,
+        advancePaymentBuffer: 0,
+        savings: 0,
+        existingSavings: 0,
+        penaltyAccrued: 100,
+        penaltyPaid: 0,
+        penaltyWaived: 0,
+        pastDueInterestAccrued: 20,
+        pastDueInterestPaid: 0,
+        pastDueInterestWaived: 0,
+        overdueChargePolicyVersion: 'DCLA_2026_V1',
+        overdueChargePolicyEffectiveDate: '2026-10-01',
+        createdAt: new Date('2026-10-01T00:00:00.000Z'),
+      } as Loan;
+      const harness = createLoanWriterHarness([loan], null, true);
+
+      const result = await harness.service.applyRepaymentWithAllocation(
+        loan.id,
+        300,
+        false,
+        harness.manager,
+        {
+          repaymentId: '10000000-0000-4000-8000-000000000001',
+          businessDate: '2026-10-10',
+        },
+      );
+
+      expect(result.allocation.contractual.amount).toBe(180);
+      expect(result.loan.amountPaid).toBe(180);
+      expect(result.loan.balance).toBe(820);
+      expect(result.loan.penaltyPaid).toBe(100);
+      expect(result.loan.pastDueInterestPaid).toBe(20);
+      expect(
+        harness.loanChargesService.recordPaymentAllocation,
+      ).toHaveBeenCalled();
     });
   });
 });

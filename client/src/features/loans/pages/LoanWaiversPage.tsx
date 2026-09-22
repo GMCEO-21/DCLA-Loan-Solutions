@@ -21,7 +21,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { Close, History, Percent, Refresh } from "@mui/icons-material";
+import { Close, History, Percent, Refresh, Sync } from "@mui/icons-material";
 import DashboardLayout from "@components/layout/PrivateLayout";
 import PageLoadingSkeleton from "@components/common/PageLoadingSkeleton";
 import { LoansAPI } from "../api";
@@ -55,6 +55,7 @@ export default function LoanWaiversPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [sweeping, setSweeping] = useState(false);
   const [selected, setSelected] = useState<LoanWaiverCandidate | null>(null);
   const [form, setForm] = useState({
     pastDueInterestWaiver: "",
@@ -91,7 +92,7 @@ export default function LoanWaiversPage() {
     try {
       const data = await LoansAPI.getWaiverCandidates();
       setCandidates(data);
-    } catch (err) {
+    } catch {
       setError("Failed to load waiver candidates.");
     } finally {
       setLoading(false);
@@ -169,7 +170,7 @@ export default function LoanWaiversPage() {
       showSnackbar("Waiver applied successfully.");
       closeWaiverDialog();
       await fetchCandidates();
-    } catch (err) {
+    } catch {
       showSnackbar("Failed to apply waiver.", "error");
     } finally {
       setSubmitting(false);
@@ -186,9 +187,30 @@ export default function LoanWaiversPage() {
     try {
       const rows = await LoansAPI.getLoanWaivers(entry.id);
       setHistoryState((prev) => ({ ...prev, loading: false, rows }));
-    } catch (err) {
+    } catch {
       setHistoryState((prev) => ({ ...prev, loading: false, rows: [] }));
       showSnackbar("Failed to load waiver history.", "error");
+    }
+  };
+
+  const handleRunSweep = async () => {
+    if (sweeping) return;
+    setSweeping(true);
+    try {
+      const response = await LoansAPI.runChargeSweep();
+      if (!response.acquired || !response.result) {
+        showSnackbar("A charge sweep is already running.", "error");
+        return;
+      }
+      showSnackbar(
+        `Sweep complete: ${response.result.chargeCount} charge event(s), ${response.result.failedCount} failure(s).`,
+        response.result.failedCount > 0 ? "error" : "success",
+      );
+      await fetchCandidates();
+    } catch {
+      showSnackbar("Failed to run charge sweep.", "error");
+    } finally {
+      setSweeping(false);
     }
   };
 
@@ -266,6 +288,15 @@ export default function LoanWaiversPage() {
                   },
                 }}
               />
+              <Button
+                variant="outlined"
+                startIcon={<Sync />}
+                disabled={sweeping}
+                onClick={() => void handleRunSweep()}
+                sx={{ borderRadius: 2, px: 3, py: 1.5, fontWeight: 600 }}
+              >
+                {sweeping ? "Running Sweep..." : "Run Charge Sweep"}
+              </Button>
               <Button
                 variant="contained"
                 startIcon={<Refresh />}

@@ -3,6 +3,8 @@ import { LoansController } from './loans.controller';
 import { LoansService } from './loans.service';
 import { CreateLoanDto } from './dto/create-loan.dto';
 import { ReloanDto } from './dto/reloan.dto';
+import { LoanChargesService } from './loan-charges.service';
+import { LoanChargeSweepService } from './loan-charge-sweep.service';
 
 describe('LoansController', () => {
   let controller: LoansController;
@@ -12,7 +14,11 @@ describe('LoansController', () => {
     service = { create: jest.fn(), reloan: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [LoansController],
-      providers: [{ provide: LoansService, useValue: service }],
+      providers: [
+        { provide: LoansService, useValue: service },
+        { provide: LoanChargesService, useValue: {} },
+        { provide: LoanChargeSweepService, useValue: {} },
+      ],
     }).compile();
 
     controller = module.get<LoansController>(LoansController);

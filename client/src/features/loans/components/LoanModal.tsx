@@ -38,6 +38,7 @@ import {
 import axios from "axios";
 import type {
   Loan,
+  LoanChargeBreakdown,
   LoanFormData,
   LoanRepaymentScheduleRow,
   MemberLoanStatusFilter,
@@ -106,6 +107,8 @@ export default function LoanModal({
   const [historyTransactions, setHistoryTransactions] = useState<
     TransactionHistoryItem[]
   >([]);
+  const [historyCharges, setHistoryCharges] =
+    useState<LoanChargeBreakdown | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
@@ -300,18 +303,20 @@ export default function LoanModal({
         limit: historyPageSize,
       };
 
-      const [schedule, transactions] = await Promise.all([
+      const [schedule, transactions, charges] = await Promise.all([
         LoansAPI.getRepaymentSchedule(loan.id),
         queryClient.fetchQuery<TransactionHistoryResponse>(
           transactionHistoryQueryKey(transactionQuery),
           ({ signal }) => TransactionsAPI.getHistory(transactionQuery, signal),
           { staleTime: 45_000 },
         ),
+        LoansAPI.getCharges(loan.id),
       ]);
 
       if (requestId !== historyRequestIdRef.current) return;
       setHistorySchedule(schedule);
       setHistoryTransactions(transactions.items);
+      setHistoryCharges(charges);
       setHistoryPage(transactions.page);
       setHistoryTotalPages(transactions.totalPages);
       setHistoryTotal(transactions.total);
@@ -370,6 +375,7 @@ export default function LoanModal({
     setHistoryLoan(null);
     setHistorySchedule([]);
     setHistoryTransactions([]);
+    setHistoryCharges(null);
     setHistoryError(null);
     setHistoryPage(1);
     setHistoryTotalPages(1);
@@ -1153,6 +1159,142 @@ export default function LoanModal({
                   </Typography>
                 </Grid>
               </Grid>
+            </Paper>
+          )}
+
+          {historyCharges && (
+            <Paper
+              sx={{
+                p: 2.5,
+                mb: 3,
+                borderRadius: 2,
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 2,
+                  mb: 2,
+                }}
+              >
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                    Penalties and Past-Due Interest
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Append-only charge history and current settlement totals.
+                  </Typography>
+                </Box>
+                <Chip
+                  color={historyCharges.eligible ? "primary" : "default"}
+                  label={
+                    historyCharges.eligible
+                      ? `${historyCharges.policyVersion} · Effective ${historyCharges.policyEffectiveDate}`
+                      : "Legacy / Not Applicable"
+                  }
+                />
+              </Box>
+
+              {historyCharges.eligible && (
+                <>
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    {[
+                      ["Penalty accrued", historyCharges.penaltyAccrued],
+                      ["Penalty paid", historyCharges.penaltyPaid],
+                      ["Penalty waived", historyCharges.penaltyWaived],
+                      [
+                        "Penalty outstanding",
+                        historyCharges.penaltyOutstanding,
+                      ],
+                      ["PDI accrued", historyCharges.pastDueInterestAccrued],
+                      ["PDI paid", historyCharges.pastDueInterestPaid],
+                      ["PDI waived", historyCharges.pastDueInterestWaived],
+                      [
+                        "PDI outstanding",
+                        historyCharges.pastDueInterestOutstanding,
+                      ],
+                    ].map(([label, value]) => (
+                      <Grid item xs={6} sm={3} key={String(label)}>
+                        <Typography variant="caption" color="text.secondary">
+                          {label}
+                        </Typography>
+                        <Typography sx={{ fontWeight: 700 }}>
+                          {formatCurrency(Number(value))}
+                        </Typography>
+                      </Grid>
+                    ))}
+                  </Grid>
+                  <Alert
+                    severity={
+                      historyCharges.reconciliation?.reconciled
+                        ? "success"
+                        : "warning"
+                    }
+                    sx={{ mb: 2 }}
+                  >
+                    Ledger reconciliation:{" "}
+                    {historyCharges.reconciliation?.reconciled
+                      ? "Matched"
+                      : "Needs investigation"}
+                  </Alert>
+                  <TableContainer sx={{ maxHeight: 280 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Recorded</TableCell>
+                          <TableCell>Charge</TableCell>
+                          <TableCell>Event</TableCell>
+                          <TableCell>Period</TableCell>
+                          <TableCell align="right">Base</TableCell>
+                          <TableCell align="right">Rate</TableCell>
+                          <TableCell align="right">Amount</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {historyCharges.entries.map((entry) => (
+                          <TableRow key={entry.id} hover>
+                            <TableCell>
+                              {formatRecordedTimestamp(entry.createdAt)}
+                            </TableCell>
+                            <TableCell>
+                              {entry.chargeType.replaceAll("_", " ")}
+                            </TableCell>
+                            <TableCell>
+                              {entry.eventType.replaceAll("_", " ")}
+                            </TableCell>
+                            <TableCell>
+                              {entry.periodStart ?? "—"}
+                              {entry.periodEnd &&
+                              entry.periodEnd !== entry.periodStart
+                                ? ` to ${entry.periodEnd}`
+                                : ""}
+                            </TableCell>
+                            <TableCell align="right">
+                              {formatCurrency(Number(entry.baseAmount))}
+                            </TableCell>
+                            <TableCell align="right">
+                              {(Number(entry.rate) * 100).toFixed(2)}%
+                            </TableCell>
+                            <TableCell align="right">
+                              {formatCurrency(Number(entry.amount))}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {historyCharges.entries.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={7} align="center">
+                              No charge events recorded.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </>
+              )}
             </Paper>
           )}
 

@@ -6,6 +6,7 @@ import History from "@mui/icons-material/History";
 import AdminPanelSettings from "@mui/icons-material/AdminPanelSettings";
 import FactCheck from "@mui/icons-material/FactCheck";
 import Payments from "@mui/icons-material/Payments";
+import Percent from "@mui/icons-material/Percent";
 import { canAccessPath } from "@features/auth/access";
 
 export const navigationWidth = 240;
@@ -18,6 +19,7 @@ const navigationItems = [
   { label: "Portfolio", path: "/portfolio", icon: AccountBalance },
   { label: "Transactions", path: "/transactions", icon: History },
   { label: "Approvals", path: "/approvals", icon: FactCheck },
+  { label: "Waivers", path: "/waivers", icon: Percent },
   { label: "User Management", path: "/admin/users", icon: AdminPanelSettings },
 ];
 export function getNavigationItems(role?: string | null) {

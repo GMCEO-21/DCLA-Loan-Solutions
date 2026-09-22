@@ -35,7 +35,11 @@ import { smsNotificationsApi } from "@features/notifications/api";
 import SendSmsConfirmationDialog from "@features/notifications/components/SendSmsConfirmationDialog";
 import type { SmsEligibilityItem } from "@features/notifications/types";
 import { useRepaymentApprovals } from "../hooks/useRepaymentApprovals";
-import type { PendingRepaymentCollectionGroup } from "../types";
+import { repaymentsService } from "../api";
+import type {
+  PendingRepaymentCollectionGroup,
+  RepaymentAllocationPreview,
+} from "../types";
 
 const formatCurrency = (value: number) =>
   `₱${Number(value || 0).toLocaleString()}`;
@@ -79,6 +83,10 @@ export default function RepaymentApprovalsPage() {
   const [approveTarget, setApproveTarget] =
     useState<PendingRepaymentCollectionGroup | null>(null);
   const [approveSubmitting, setApproveSubmitting] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [allocationPreviews, setAllocationPreviews] = useState<
+    RepaymentAllocationPreview[]
+  >([]);
   const [rejectState, setRejectState] = useState<{
     open: boolean;
     target: PendingRepaymentCollectionGroup | null;
@@ -146,6 +154,32 @@ export default function RepaymentApprovalsPage() {
     } finally {
       setApproveSubmitting(false);
       setApproveTarget(null);
+      setAllocationPreviews([]);
+    }
+  };
+
+  const handleOpenApprove = async (target: PendingRepaymentCollectionGroup) => {
+    setApproveTarget(target);
+    setAllocationPreviews([]);
+    setPreviewLoading(true);
+    try {
+      const repayments = await repaymentsService.getPendingForCollection(
+        target.centerId,
+        target.collectionDate,
+      );
+      const paymentRepayments = repayments.filter(
+        (repayment) => repayment.operationType !== "reversal",
+      );
+      const previews = await Promise.all(
+        paymentRepayments.map((repayment) =>
+          repaymentsService.getAllocationPreview(repayment.id),
+        ),
+      );
+      setAllocationPreviews(previews);
+    } catch {
+      showSnackbar("Unable to load repayment allocation preview.", "error");
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -384,7 +418,7 @@ export default function RepaymentApprovalsPage() {
                             color="success"
                             startIcon={<CheckCircle />}
                             disabled={isActing}
-                            onClick={() => setApproveTarget(item)}
+                            onClick={() => void handleOpenApprove(item)}
                             sx={{ minHeight: 44 }}
                           >
                             Approve
@@ -469,11 +503,58 @@ export default function RepaymentApprovalsPage() {
             <strong>{approveTarget?.centerName || "Unknown center"}</strong> on{" "}
             <strong>{formatDate(approveTarget?.collectionDate)}</strong>.
           </DialogContentText>
+          {previewLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : allocationPreviews.length > 0 ? (
+            <TableContainer component={Paper} variant="outlined" sx={{ mt: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Loan</TableCell>
+                    <TableCell align="right">Penalty</TableCell>
+                    <TableCell align="right">PDI</TableCell>
+                    <TableCell align="right">Loan</TableCell>
+                    <TableCell align="right">Savings</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {allocationPreviews.map((preview) => (
+                    <TableRow key={preview.repaymentId}>
+                      <TableCell>{preview.loanId.slice(0, 8)}...</TableCell>
+                      <TableCell align="right">
+                        {formatCurrency(preview.allocation.penalty.amount)}
+                      </TableCell>
+                      <TableCell align="right">
+                        {formatCurrency(
+                          preview.allocation.pastDueInterest.amount,
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        {formatCurrency(preview.allocation.contractual.amount)}
+                      </TableCell>
+                      <TableCell align="right">
+                        {formatCurrency(preview.allocation.savingsUsed)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              No payment allocations in this collection.
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions sx={dialogActionsSx}>
           <Button
             disabled={approveSubmitting}
-            onClick={() => setApproveTarget(null)}
+            onClick={() => {
+              setApproveTarget(null);
+              setAllocationPreviews([]);
+            }}
             color="inherit"
           >
             Cancel
@@ -482,7 +563,7 @@ export default function RepaymentApprovalsPage() {
             variant="contained"
             color="success"
             onClick={handleApprove}
-            disabled={approveSubmitting}
+            disabled={approveSubmitting || previewLoading}
             startIcon={
               approveSubmitting ? (
                 <CircularProgress size={16} color="inherit" />

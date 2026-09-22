@@ -1,4 +1,9 @@
-import { parseDateOnly } from './date-only';
+import {
+  differenceInDateOnlyDays,
+  getWeeklyPenaltyAssessmentDate,
+  laterDateOnly,
+  parseDateOnly,
+} from './date-only';
 
 describe('parseDateOnly', () => {
   it.each([
@@ -20,4 +25,23 @@ describe('parseDateOnly', () => {
       expect(() => parseDateOnly(value)).toThrow(RangeError);
     },
   );
+});
+
+describe('date-only financial helpers', () => {
+  it('calculates calendar-day differences without timezone conversion', () => {
+    expect(differenceInDateOnlyDays('2026-09-13', '2026-09-14')).toBe(1);
+    expect(differenceInDateOnlyDays('2026-09-14', '2026-09-13')).toBe(-1);
+  });
+
+  it('returns the later validated date', () => {
+    expect(laterDateOnly('2026-09-13', '2026-09-14')).toBe('2026-09-14');
+  });
+
+  it.each([
+    ['2026-09-13', '2026-09-19'],
+    ['2026-09-18', '2026-09-19'],
+    ['2026-09-19', '2026-09-26'],
+  ])('maps due date %s to assessment date %s', (dueDate, expected) => {
+    expect(getWeeklyPenaltyAssessmentDate(dueDate)).toBe(expected);
+  });
 });

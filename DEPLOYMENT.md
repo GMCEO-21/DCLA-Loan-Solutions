@@ -59,6 +59,26 @@ Required production variables:
 - `TYPEORM_SYNC=false`
 - `TYPEORM_RUN_MIGRATIONS=false`
 
+Keep DCLA-06 disabled during the initial schema/application deployment:
+
+- omit `NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION`
+- omit `OVERDUE_CHARGE_POLICY_ACTIVATION_DATE`
+- set `LOAN_CHARGE_SCHEDULER_ENABLED=false`
+
+After schema and application verification, controlled enrollment requires both:
+
+- `NEW_LOAN_OVERDUE_CHARGE_POLICY_VERSION=DCLA_2026_V1`
+- `OVERDUE_CHARGE_POLICY_ACTIVATION_DATE=YYYY-MM-DD`
+
+Only loans released on or after that date are stamped as eligible; existing rows
+remain `NULL` and are never backfilled. Keep the scheduler disabled during the
+first enrolled-loan smoke test. Then run the manager manual sweep and, after
+reconciliation is verified, set `LOAN_CHARGE_SCHEDULER_ENABLED=true`. Optional
+worker tuning uses `LOAN_CHARGE_POLL_INTERVAL_MS` (default one hour) and
+`LOAN_CHARGE_BATCH_SIZE` (default 100). Multiple instances coordinate sweeps
+through a PostgreSQL advisory lock, while deterministic ledger keys prevent
+duplicate accruals.
+
 `CLIENT_URL` is a comma-separated exact-origin allow-list. Every production
 origin must use HTTPS and contain no path, query, or credentials. Keep access
 and refresh JWT secrets distinct.

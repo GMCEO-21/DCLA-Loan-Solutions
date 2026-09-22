@@ -5,10 +5,15 @@ import { theme } from "../../../theme/theme";
 import RepaymentApprovalsPage from "./RepaymentApprovalsPage";
 
 const useRepaymentApprovalsMock = vi.hoisted(() => vi.fn());
+const repaymentsServiceMock = vi.hoisted(() => ({
+  getPendingForCollection: vi.fn(),
+  getAllocationPreview: vi.fn(),
+}));
 
 vi.mock("../hooks/useRepaymentApprovals", () => ({
   useRepaymentApprovals: useRepaymentApprovalsMock,
 }));
+vi.mock("../api", () => ({ repaymentsService: repaymentsServiceMock }));
 vi.mock("@components/layout/PrivateLayout", () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -68,6 +73,7 @@ describe("RepaymentApprovalsPage", () => {
       approvedPaymentIds: [],
     });
     actions.rejectCollection.mockResolvedValue(undefined);
+    repaymentsServiceMock.getPendingForCollection.mockResolvedValue([]);
     useRepaymentApprovalsMock.mockReturnValue(defaultState);
   });
 
@@ -109,6 +115,9 @@ describe("RepaymentApprovalsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     const dialog = screen.getByRole("dialog", { name: "Approve collection" });
     expect(within(dialog).getByText(/North Center/)).toBeInTheDocument();
+    await within(dialog).findByText(
+      "No payment allocations in this collection.",
+    );
     fireEvent.click(
       within(dialog).getByRole("button", { name: "Approve Collection" }),
     );
@@ -121,6 +130,42 @@ describe("RepaymentApprovalsPage", () => {
     expect(
       await screen.findByText("Collection approved successfully."),
     ).toBeInTheDocument();
+  });
+
+  it("shows the server-calculated charge allocation before approval", async () => {
+    repaymentsServiceMock.getPendingForCollection.mockResolvedValue([
+      { id: "repayment-1", operationType: "payment" },
+    ]);
+    repaymentsServiceMock.getAllocationPreview.mockResolvedValue({
+      repaymentId: "repayment-1",
+      loanId: "12345678-0000-4000-8000-000000000001",
+      asOfDate: "2026-09-07",
+      allocation: {
+        eligible: true,
+        cashReceived: 500,
+        savingsUsed: 50,
+        totalApplied: 550,
+        penalty: { amount: 100, cashPortion: 100, savingsPortion: 0 },
+        pastDueInterest: { amount: 20, cashPortion: 20, savingsPortion: 0 },
+        contractual: { amount: 430, cashPortion: 380, savingsPortion: 50 },
+        unapplied: 0,
+      },
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    const dialog = screen.getByRole("dialog", { name: "Approve collection" });
+    const loanCell = await within(dialog).findByText("12345678...");
+    const allocationRow = loanCell.closest("tr");
+
+    expect(repaymentsServiceMock.getAllocationPreview).toHaveBeenCalledWith(
+      "repayment-1",
+    );
+    expect(allocationRow).not.toBeNull();
+    expect(within(allocationRow!).getByText("\u20B1100")).toBeInTheDocument();
+    expect(within(allocationRow!).getByText("\u20B120")).toBeInTheDocument();
+    expect(within(allocationRow!).getByText("\u20B1430")).toBeInTheDocument();
+    expect(within(allocationRow!).getByText("\u20B150")).toBeInTheDocument();
   });
 
   it("preserves the rejection reason and collection rejection call", async () => {

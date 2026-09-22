@@ -182,10 +182,11 @@ Steps:
 4. Mark batch `approved` with approver metadata.
 
 Per repayment approval path (`approvePaymentRepayment`):
-1. Call `LoansService.applyRepayment(...)`.
-2. Rebuild/ensure schedule and apply allocation records.
-3. Upsert corresponding `collection` summary row via `recordCollectionEntry(...)`.
-4. Mark repayment row `approved` with metadata.
+1. For `DCLA_2026_V1` loans, catch up due charges under the existing loan lock.
+2. Allocate payment to penalty, past-due interest, then contractual balance.
+3. Rebuild/ensure schedule and apply only the contractual allocation.
+4. Upsert the corresponding `collection` summary with contractual money only.
+5. Mark the repayment row `approved` with metadata.
 
 Effect:
 - This is the point where money is officially posted.
@@ -299,6 +300,16 @@ Responsibilities:
 - Loan lifecycle.
 - Repayment application primitive (`applyRepayment`).
 - Waiver operations (`past due interest`, `penalty`).
+- Immutable new-loan enrollment in `DCLA_2026_V1`.
+- Append-only penalty/PDI ledger, reconciliation, and catch-up sweep.
+
+Charge safety invariants:
+- `overdueChargePolicyVersion IS NULL` is permanently legacy/not applicable.
+- Only the server stamps `DCLA_2026_V1` during origination/reloan creation.
+- Contractual `loan.balance` and `loan.amountPaid` never include charge money.
+- Charge payment and reversal rows share the repayment transaction and loan lock.
+- Weekly penalty stops at maturity; maturity penalty is one-time; PDI is daily and non-compounding.
+- Loan completion/reloan requires all enrolled-loan charges to be paid or waived.
 
 ### 6.5 Portfolio and manager dashboard
 
@@ -321,6 +332,12 @@ Repayments:
 - `GET /api/repayments/pending/collections` manager review queue
 - `POST /api/repayments/pending/collections/approve` manager approves grouped collection
 - `POST /api/repayments/pending/collections/reject` manager rejects grouped collection
+- `GET /api/repayments/:id/allocation-preview` manager previews server allocation
+
+Loan charges:
+- `GET /api/loans/:id/charges` operational roles view policy, totals, history, reconciliation
+- `POST /api/loans/:id/waivers` manager waives enrolled-loan charges
+- `POST /api/loans/charges/sweep` manager runs the idempotent catch-up sweep
 
 Collections:
 - `GET /api/collection/daily`

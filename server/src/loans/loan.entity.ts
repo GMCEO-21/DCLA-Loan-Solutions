@@ -74,10 +74,22 @@ export class Loan {
   pastDueInterestWaived: number;
 
   @Column('decimal', { precision: 12, scale: 2, default: 0 })
+  pastDueInterestPaid: number;
+
+  @Column('decimal', { precision: 12, scale: 2, default: 0 })
   penaltyAccrued: number;
 
   @Column('decimal', { precision: 12, scale: 2, default: 0 })
   penaltyWaived: number;
+
+  @Column('decimal', { precision: 12, scale: 2, default: 0 })
+  penaltyPaid: number;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  overdueChargePolicyVersion: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  overdueChargePolicyEffectiveDate: string | null;
 
   @Column({ nullable: true })
   loanCreatedDate!: Date;
@@ -88,10 +100,7 @@ export class Loan {
   @UpdateDateColumn()
   updatedAt!: Date;
 
-  @OneToMany(
-    () => LoanRepaymentSchedule,
-    (schedule) => schedule.loan,
-  )
+  @OneToMany(() => LoanRepaymentSchedule, (schedule) => schedule.loan)
   repaymentSchedule!: LoanRepaymentSchedule[];
 
   @OneToMany(() => LoanWaiver, (waiver) => waiver.loan)

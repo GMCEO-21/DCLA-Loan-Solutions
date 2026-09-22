@@ -14,6 +14,7 @@ import {
 import { RepaymentsService } from './repayments.service';
 import { CollectionBatch } from './entities/collection-batch.entity';
 import { LoanRepaymentAllocation } from './entities/loan-repayment-allocation.entity';
+import { LoanChargesService } from '../loans/loan-charges.service';
 import {
   LoanRepaymentSchedule,
   LoanRepaymentStatus,
@@ -136,6 +137,21 @@ function createReversalHarness(savingsPortion: number) {
     {} as Repository<Savings>,
     {} as Repository<CollectionBatch>,
     {} as LoansService,
+    {
+      reversePaymentAllocation: jest.fn().mockResolvedValue({
+        penaltyReversed: 0,
+        pastDueInterestReversed: 0,
+        cashReversed: 0,
+        savingsReversed: 0,
+        totalReversed: 0,
+      }),
+      getOutstanding: jest.fn().mockReturnValue({
+        penaltyOutstanding: 0,
+        pastDueInterestOutstanding: 0,
+        totalOutstanding: 0,
+      }),
+      isEligible: jest.fn().mockReturnValue(false),
+    } as unknown as LoanChargesService,
   );
 
   return {

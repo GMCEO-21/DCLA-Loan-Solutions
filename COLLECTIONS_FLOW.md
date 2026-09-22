@@ -225,4 +225,11 @@ Frontend review/approval screens:
 
 Any change that affects loan balances, repayment approvals, reversal logic, or collection totals must preserve auditability and deterministic rollback behavior.
 
+For loans enrolled in `DCLA_2026_V1`, approval first catches up due charges and
+then allocates money in this order: penalty, past-due interest, contractual loan
+amount. Only the contractual portion updates collection received totals and the
+repayment schedule. Charge payments and exact compensating reversals are stored
+in `loan_charge_ledger` within the same approval transaction. Legacy loans have
+`overdueChargePolicyVersion IS NULL` and retain the pre-DCLA-06 flow.
+
 If a proposed change makes it harder to explain "who posted what, when, and why," it is not acceptable for production finance flow.

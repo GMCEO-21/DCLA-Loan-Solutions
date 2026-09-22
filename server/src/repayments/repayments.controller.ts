@@ -100,6 +100,12 @@ export class RepaymentsController {
   }
 
   @Roles(ROLE.Manager)
+  @Get(':id/allocation-preview')
+  getAllocationPreview(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.repaymentsService.getAllocationPreview(id);
+  }
+
+  @Roles(ROLE.Manager)
   @Post(':id/reject')
   reject(
     @Param('id', new ParseUUIDPipe()) id: string,

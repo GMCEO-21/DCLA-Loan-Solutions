@@ -1,8 +1,12 @@
 import 'reflect-metadata';
+import { ConfigService } from '@nestjs/config';
 import { Collection } from '../collections/entities/collection.entity';
 import { LoanWaiver } from '../loans/entities/loan-waiver.entity';
 import { Loan } from '../loans/loan.entity';
 import { LoansService } from '../loans/loans.service';
+import { LoanChargeLedger } from '../loans/entities/loan-charge-ledger.entity';
+import { LoanChargePolicyService } from '../loans/loan-charge-policy.service';
+import { LoanChargesService } from '../loans/loan-charges.service';
 import { Member } from '../members/entities/member.entity';
 import { LoanRepaymentSchedule } from '../repayments/entities/loan-repayment-schedule.entity';
 import {
@@ -58,6 +62,16 @@ async function bootstrap() {
 
   try {
     await AppDataSource.initialize();
+    const policyService = new LoanChargePolicyService(
+      new ConfigService(process.env),
+    );
+    const loanChargesService = new LoanChargesService(
+      AppDataSource.getRepository(Loan),
+      AppDataSource.getRepository(LoanChargeLedger),
+      AppDataSource.getRepository(LoanRepaymentSchedule),
+      AppDataSource.getRepository(LoanWaiver),
+      policyService,
+    );
     const loansService = new LoansService(
       AppDataSource.getRepository(Loan),
       AppDataSource.getRepository(Member),
@@ -65,6 +79,8 @@ async function bootstrap() {
       AppDataSource.getRepository(Savings),
       AppDataSource.getRepository(LoanRepaymentSchedule),
       AppDataSource.getRepository(LoanWaiver),
+      policyService,
+      loanChargesService,
     );
     const service = new SavingsLedgerCutoverService(
       AppDataSource,

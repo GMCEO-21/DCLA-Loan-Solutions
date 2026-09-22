@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import Decimal from 'decimal.js';
 import { EntityManager, Repository } from 'typeorm';
 import { Loan } from './loan.entity';
 import { Member } from '../members/entities/member.entity';
@@ -27,6 +28,13 @@ import {
   repaymentSavingsDebitIdempotencyKey,
   SAVINGS_REFERENCE_TYPE,
 } from '../savings/savings-ledger.utils';
+import { LoanChargePolicyService } from './loan-charge-policy.service';
+import { parseDateOnly } from '../common/date-only';
+import {
+  LoanChargesService,
+  LoanPaymentAllocation,
+} from './loan-charges.service';
+import { decimal, moneyNumber } from '../common/money';
 
 type LoanCreationOrigin = 'origination' | 'reloan';
 
@@ -40,6 +48,11 @@ interface RepaymentSavingsLedgerContext {
   repaymentId: string;
   actorId?: string;
   businessDate: string;
+}
+
+export interface LoanRepaymentApplicationResult {
+  loan: Loan;
+  allocation: LoanPaymentAllocation;
 }
 
 @Injectable()
@@ -57,6 +70,8 @@ export class LoansService {
     private readonly scheduleRepository: Repository<LoanRepaymentSchedule>,
     @InjectRepository(LoanWaiver)
     private readonly loanWaiverRepository: Repository<LoanWaiver>,
+    private readonly loanChargePolicyService: LoanChargePolicyService,
+    private readonly loanChargesService: LoanChargesService,
   ) {}
 
   // Business logic for interest rates
@@ -191,6 +206,7 @@ export class LoansService {
 
     const borrower = await memberRepository.findOne({
       where: { id: borrowerId },
+      relations: ['center'],
     });
     if (!borrower) {
       throw new NotFoundException(`Member #${borrowerId} not found`);
@@ -253,6 +269,12 @@ export class LoansService {
         monthlyInterestRate,
       );
 
+    const releaseDate = loanCreatedDate
+      ? parseDateOnly(loanCreatedDate).value
+      : context.businessDate;
+    const chargePolicyEnrollment =
+      this.loanChargePolicyService.resolveEnrollment(releaseDate);
+
     // Create loan
     const loan = loanRepository.create({
       borrower,
@@ -271,7 +293,10 @@ export class LoansService {
       amountPaid: 0,
       advancePaymentBuffer: 0,
       status: 'active',
-      loanCreatedDate: loanCreatedDate ? new Date(loanCreatedDate) : new Date(),
+      loanCreatedDate: new Date(`${releaseDate}T00:00:00.000Z`),
+      overdueChargePolicyVersion: chargePolicyEnrollment?.version ?? null,
+      overdueChargePolicyEffectiveDate:
+        chargePolicyEnrollment?.effectiveDate ?? null,
     });
 
     // Compute net cash released for all loans: principal - fee - savings (never below 0)
@@ -281,6 +306,10 @@ export class LoansService {
     loan.netCashReleased = netCashReleased;
 
     const savedLoan = await loanRepository.save(loan);
+
+    if (chargePolicyEnrollment) {
+      await this.rebuildRepaymentSchedule(savedLoan, borrower, manager);
+    }
 
     if (newSavingsContribution > 0) {
       const eventType =
@@ -328,6 +357,23 @@ export class LoansService {
     manager?: EntityManager,
     ledgerContext?: RepaymentSavingsLedgerContext,
   ): Promise<Loan> {
+    const result = await this.applyRepaymentWithAllocation(
+      loanId,
+      amount,
+      useSavings,
+      manager,
+      ledgerContext,
+    );
+    return result.loan;
+  }
+
+  async applyRepaymentWithAllocation(
+    loanId: string,
+    amount: number,
+    useSavings: boolean = false,
+    manager?: EntityManager,
+    ledgerContext?: RepaymentSavingsLedgerContext,
+  ): Promise<LoanRepaymentApplicationResult> {
     if (
       amount === undefined ||
       amount === null ||
@@ -349,7 +395,7 @@ export class LoansService {
 
     if (!manager) {
       return this.loanRepository.manager.transaction((transactionManager) =>
-        this.applyRepayment(
+        this.applyRepaymentWithAllocation(
           loanId,
           amount,
           useSavings,
@@ -381,12 +427,57 @@ export class LoansService {
     const expectedPayment = Math.min(weekly, Number(loan.balance));
     const currentBuffer = Number(loan.advancePaymentBuffer || 0);
     const availableSavings = Number(loan.savings || 0);
+    const chargePolicyEligible = this.loanChargePolicyService.isEligible(loan);
+
+    if (chargePolicyEligible && !ledgerContext) {
+      throw new Error(
+        'Repayment ledger context is required for a policy-enrolled loan',
+      );
+    }
 
     // If payment is short and useSavings is true, deduct from savings
     let totalPayment = cashAmount;
     let savingsUsed = 0;
+    let allocation: LoanPaymentAllocation = {
+      eligible: false,
+      cashReceived: cashAmount,
+      savingsUsed: 0,
+      totalApplied: cashAmount,
+      penalty: { amount: 0, cashPortion: 0, savingsPortion: 0 },
+      pastDueInterest: { amount: 0, cashPortion: 0, savingsPortion: 0 },
+      contractual: {
+        amount: cashAmount,
+        cashPortion: cashAmount,
+        savingsPortion: 0,
+      },
+      unapplied: 0,
+    };
 
-    if (useSavings && cashAmount < expectedPayment) {
+    if (chargePolicyEligible) {
+      allocation = this.loanChargesService.previewPaymentAllocation(
+        loan,
+        cashAmount,
+        useSavings,
+      );
+      if (allocation.totalApplied <= 0) {
+        throw new BadRequestException(
+          'No cash or savings is available to apply to this loan',
+        );
+      }
+      if (allocation.unapplied > 0) {
+        throw new BadRequestException(
+          `Payment exceeds the total outstanding amount by ${allocation.unapplied.toFixed(2)}`,
+        );
+      }
+      await this.loanChargesService.recordPaymentAllocation(
+        loan,
+        ledgerContext!.repaymentId,
+        allocation,
+        manager,
+      );
+      totalPayment = allocation.contractual.amount;
+      savingsUsed = allocation.savingsUsed;
+    } else if (useSavings && cashAmount < expectedPayment) {
       const shortfall = expectedPayment - cashAmount;
       if (availableSavings <= 0) {
         throw new BadRequestException(
@@ -400,19 +491,49 @@ export class LoansService {
       totalPayment = Math.min(totalPayment, expectedPayment);
     }
 
-    const newBuffer = currentBuffer + totalPayment;
+    if (!chargePolicyEligible) {
+      const contractualCash = Math.min(cashAmount, totalPayment);
+      allocation = {
+        eligible: false,
+        cashReceived: cashAmount,
+        savingsUsed,
+        totalApplied: totalPayment,
+        penalty: { amount: 0, cashPortion: 0, savingsPortion: 0 },
+        pastDueInterest: { amount: 0, cashPortion: 0, savingsPortion: 0 },
+        contractual: {
+          amount: totalPayment,
+          cashPortion: contractualCash,
+          savingsPortion: Math.max(0, totalPayment - contractualCash),
+        },
+        unapplied: 0,
+      };
+    }
 
+    const newBuffer = chargePolicyEligible
+      ? moneyNumber(decimal(currentBuffer).add(totalPayment))
+      : currentBuffer + totalPayment;
     const newWeeksPaid = Math.floor(newBuffer / weekly);
-    const remainingBuffer = newBuffer % weekly;
+    const remainingBuffer = chargePolicyEligible
+      ? moneyNumber(decimal(newBuffer).mod(weekly))
+      : newBuffer % weekly;
 
     loan.weeksPaid = Number(loan.weeksPaid) + newWeeksPaid;
     loan.advancePaymentBuffer = remainingBuffer;
-    loan.amountPaid = Number(loan.amountPaid) + totalPayment;
-    loan.balance = Math.max(0, Number(loan.balance) - totalPayment);
-    loan.savings = Math.max(0, availableSavings - savingsUsed);
+    loan.amountPaid = chargePolicyEligible
+      ? moneyNumber(decimal(loan.amountPaid).add(totalPayment))
+      : Number(loan.amountPaid) + totalPayment;
+    loan.balance = chargePolicyEligible
+      ? moneyNumber(Decimal.max(0, decimal(loan.balance).sub(totalPayment)))
+      : Math.max(0, Number(loan.balance) - totalPayment);
+    loan.savings = chargePolicyEligible
+      ? moneyNumber(Decimal.max(0, decimal(availableSavings).sub(savingsUsed)))
+      : Math.max(0, availableSavings - savingsUsed);
     loan.existingSavings = 0;
 
-    if (loan.balance === 0) {
+    const chargesOutstanding = chargePolicyEligible
+      ? this.loanChargesService.getOutstanding(loan).totalOutstanding
+      : 0;
+    if (loan.balance === 0 && chargesOutstanding === 0) {
       loan.status = 'paid';
       loan.weeksPaid = Number(loan.termWeeks);
       loan.advancePaymentBuffer = 0;
@@ -447,7 +568,7 @@ export class LoansService {
       await savingsRepository.save(savingsEntry);
     }
 
-    return savedLoan;
+    return { loan: savedLoan, allocation };
   }
 
   async findAll(): Promise<Loan[]> {
@@ -503,23 +624,24 @@ export class LoansService {
   }
 
   private getOutstandingWaiverBuckets(loan: Loan) {
-    const pastDueInterestOutstanding = Math.max(
+    const pastDueInterestOutstanding = Decimal.max(
       0,
-      Number(loan.pastDueInterestAccrued || 0) -
-        Number(loan.pastDueInterestWaived || 0),
+      decimal(loan.pastDueInterestAccrued)
+        .sub(loan.pastDueInterestPaid)
+        .sub(loan.pastDueInterestWaived),
     );
-    const penaltyOutstanding = Math.max(
+    const penaltyOutstanding = Decimal.max(
       0,
-      Number(loan.penaltyAccrued || 0) - Number(loan.penaltyWaived || 0),
+      decimal(loan.penaltyAccrued)
+        .sub(loan.penaltyPaid)
+        .sub(loan.penaltyWaived),
     );
 
     return {
-      pastDueInterestOutstanding: this.roundCurrency(
-        pastDueInterestOutstanding,
-      ),
-      penaltyOutstanding: this.roundCurrency(penaltyOutstanding),
-      totalOutstanding: this.roundCurrency(
-        pastDueInterestOutstanding + penaltyOutstanding,
+      pastDueInterestOutstanding: moneyNumber(pastDueInterestOutstanding),
+      penaltyOutstanding: moneyNumber(penaltyOutstanding),
+      totalOutstanding: moneyNumber(
+        pastDueInterestOutstanding.add(penaltyOutstanding),
       ),
     };
   }
@@ -532,15 +654,20 @@ export class LoansService {
     });
 
     return loans
+      .filter((loan) => this.loanChargePolicyService.isEligible(loan))
       .map((loan) => ({
         id: loan.id,
         borrower: loan.borrower,
         status: loan.status,
         balance: Number(loan.balance || 0),
         pastDueInterestAccrued: Number(loan.pastDueInterestAccrued || 0),
+        pastDueInterestPaid: Number(loan.pastDueInterestPaid || 0),
         pastDueInterestWaived: Number(loan.pastDueInterestWaived || 0),
         penaltyAccrued: Number(loan.penaltyAccrued || 0),
+        penaltyPaid: Number(loan.penaltyPaid || 0),
         penaltyWaived: Number(loan.penaltyWaived || 0),
+        overdueChargePolicyVersion: loan.overdueChargePolicyVersion,
+        overdueChargePolicyEffectiveDate: loan.overdueChargePolicyEffectiveDate,
         ...this.getOutstandingWaiverBuckets(loan),
         updatedAt: loan.updatedAt,
       }))
@@ -556,17 +683,39 @@ export class LoansService {
   }
 
   async applyWaiver(loanId: string, dto: ApplyLoanWaiverDto, actorId?: string) {
-    const loan = await this.findOne(loanId);
+    return this.loanRepository.manager.transaction((manager) =>
+      this.applyWaiverWithinTransaction(loanId, dto, actorId, manager),
+    );
+  }
+
+  private async applyWaiverWithinTransaction(
+    loanId: string,
+    dto: ApplyLoanWaiverDto,
+    actorId: string | undefined,
+    manager: EntityManager,
+  ) {
+    const loanRepository = manager.getRepository(Loan);
+    const waiverRepository = manager.getRepository(LoanWaiver);
+    await loanRepository
+      .createQueryBuilder('loan')
+      .setLock('pessimistic_write')
+      .where('loan.id = :loanId', { loanId })
+      .getOne();
+    const loan = await loanRepository.findOne({
+      where: { id: loanId },
+      relations: ['borrower'],
+    });
+    if (!loan) throw new NotFoundException(`Loan #${loanId} not found`);
     if (loan.status !== 'active') {
       throw new BadRequestException(
         'Waiver can only be applied to active loans',
       );
     }
 
-    const requestedPastDueInterestWaiver = Number(
-      dto.pastDueInterestWaiver || 0,
+    const requestedPastDueInterestWaiver = moneyNumber(
+      dto.pastDueInterestWaiver,
     );
-    const requestedPenaltyWaiver = Number(dto.penaltyWaiver || 0);
+    const requestedPenaltyWaiver = moneyNumber(dto.penaltyWaiver);
 
     if (requestedPastDueInterestWaiver <= 0 && requestedPenaltyWaiver <= 0) {
       throw new BadRequestException(
@@ -591,25 +740,38 @@ export class LoansService {
       );
     }
 
-    const beforeBalance = Number(loan.balance || 0);
+    const policyEligible = this.loanChargePolicyService.isEligible(loan);
+    if (!policyEligible) {
+      throw new BadRequestException(
+        'Legacy loans are not eligible for automated charge waivers',
+      );
+    }
+    const beforeContractualBalance = Number(loan.balance || 0);
+    const beforeBalance = this.roundCurrency(
+      beforeContractualBalance +
+        pastDueInterestOutstanding +
+        penaltyOutstanding,
+    );
     const totalWaived = this.roundCurrency(
       requestedPastDueInterestWaiver + requestedPenaltyWaiver,
     );
 
-    loan.pastDueInterestWaived = this.roundCurrency(
-      Number(loan.pastDueInterestWaived || 0) + requestedPastDueInterestWaiver,
+    loan.pastDueInterestWaived = moneyNumber(
+      decimal(loan.pastDueInterestWaived).add(requestedPastDueInterestWaiver),
     );
-    loan.penaltyWaived = this.roundCurrency(
-      Number(loan.penaltyWaived || 0) + requestedPenaltyWaiver,
+    loan.penaltyWaived = moneyNumber(
+      decimal(loan.penaltyWaived).add(requestedPenaltyWaiver),
     );
-    loan.balance = this.roundCurrency(Math.max(0, beforeBalance - totalWaived));
-
-    if (loan.balance === 0) {
+    const remainingCharges = this.getOutstandingWaiverBuckets(loan);
+    if (loan.balance === 0 && remainingCharges.totalOutstanding === 0) {
       loan.status = 'paid';
     }
 
-    const savedLoan = await this.loanRepository.save(loan);
-    const waiver = this.loanWaiverRepository.create({
+    const savedLoan = await loanRepository.save(loan);
+    const afterBalance = this.roundCurrency(
+      Number(savedLoan.balance || 0) + remainingCharges.totalOutstanding,
+    );
+    const waiver = waiverRepository.create({
       loanId: savedLoan.id,
       pastDueInterestWaived: this.roundCurrency(requestedPastDueInterestWaiver),
       penaltyWaived: this.roundCurrency(requestedPenaltyWaiver),
@@ -617,9 +779,9 @@ export class LoansService {
       waivedById: actorId ?? null,
       reason: dto.reason?.trim() || null,
       beforeBalance: this.roundCurrency(beforeBalance),
-      afterBalance: this.roundCurrency(savedLoan.balance || 0),
+      afterBalance,
     });
-    const savedWaiver = await this.loanWaiverRepository.save(waiver);
+    const savedWaiver = await waiverRepository.save(waiver);
 
     return {
       loan: savedLoan,
@@ -652,12 +814,19 @@ export class LoansService {
         minWeeks = Math.ceil(loan.termWeeks * 0.625); // Fallback formula (5/8 of term)
     }
 
-    const eligible = loan.weeksPaid >= minWeeks && loan.status === 'active';
+    const outstandingCharges = this.loanChargePolicyService.isEligible(loan)
+      ? this.loanChargesService.getOutstanding(loan).totalOutstanding
+      : 0;
+    const eligible =
+      loan.weeksPaid >= minWeeks &&
+      loan.status === 'active' &&
+      outstandingCharges === 0;
     return {
       eligible,
       minWeeksRequired: minWeeks,
       weeksPaid: loan.weeksPaid,
       termWeeks: loan.termWeeks,
+      outstandingCharges,
     };
   }
 
@@ -724,6 +893,15 @@ export class LoansService {
     }
     if (loan.status !== 'active')
       throw new BadRequestException('Only active loans can be reloaned');
+
+    if (
+      this.loanChargePolicyService.isEligible(loan) &&
+      this.loanChargesService.getOutstanding(loan).totalOutstanding > 0
+    ) {
+      throw new BadRequestException(
+        'Outstanding penalties and past-due interest must be paid or waived before reloan',
+      );
+    }
 
     const { eligible, minWeeksRequired } = this.getReloanEligibility(loan);
     if (!eligible)
@@ -858,6 +1036,16 @@ export class LoansService {
     if (Number(loan.weeksPaid || 0) > 0 || Number(loan.amountPaid || 0) > 0) {
       throw new BadRequestException(
         'Cannot change term weeks after repayments have been recorded',
+      );
+    }
+
+    if (
+      this.loanChargePolicyService.isEligible(loan) &&
+      (Number(loan.penaltyAccrued || 0) > 0 ||
+        Number(loan.pastDueInterestAccrued || 0) > 0)
+    ) {
+      throw new BadRequestException(
+        'Cannot change term weeks after overdue charges have been recorded',
       );
     }
 
@@ -1038,8 +1226,11 @@ export class LoansService {
   private async rebuildRepaymentSchedule(
     loan: Loan,
     member: Member,
+    manager?: EntityManager,
   ): Promise<void> {
-    await this.scheduleRepository.delete({ loanId: loan.id });
+    const scheduleRepository =
+      manager?.getRepository(LoanRepaymentSchedule) ?? this.scheduleRepository;
+    await scheduleRepository.delete({ loanId: loan.id });
 
     const termWeeks = Number(loan.termWeeks || 0);
     const weeklyDue = Number(loan.weeklyPaymentAmount || 0);
@@ -1056,7 +1247,7 @@ export class LoansService {
       const dueDate = this.addDays(firstDueDate, i * 7);
       const scheduleBreakdown = breakdown[i];
       schedules.push(
-        this.scheduleRepository.create({
+        scheduleRepository.create({
           loanId: loan.id,
           memberId: member.id,
           centerId: center?.id ?? null,
@@ -1072,6 +1263,6 @@ export class LoansService {
       );
     }
 
-    await this.scheduleRepository.save(schedules);
+    await scheduleRepository.save(schedules);
   }
 }
