@@ -169,7 +169,7 @@ export interface CreateLoanData {
   savings?: number;
   serviceCharge?: number;
   notarialFee?: number;
-  loanCreatedDate?: Date;
+  loanCreatedDate?: string;
 }
 
 export interface LoanFormData {

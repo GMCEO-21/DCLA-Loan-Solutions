@@ -4,6 +4,7 @@ import {
   IsUUID,
   IsIn,
   Max,
+  Matches,
   Min,
   IsDateString,
 } from 'class-validator';
@@ -44,6 +45,9 @@ export class CreateLoanDto {
   // Optional loan creation date; defaults to current date if not provided
   @IsOptional()
   @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'loanCreatedDate must use YYYY-MM-DD format',
+  })
   loanCreatedDate?: string;
 
 }

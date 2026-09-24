@@ -6,6 +6,17 @@ const collectionDateFormatter = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 });
 
+export function toDateOnlyString(date: Date): string {
+  if (Number.isNaN(date.getTime())) {
+    throw new RangeError("Date must be valid");
+  }
+
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function formatCollectionDate(value?: string | null): string {
   const match = value?.match(dateOnlyPattern);
   if (!match) return "—";

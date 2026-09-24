@@ -269,9 +269,16 @@ export class LoansService {
         monthlyInterestRate,
       );
 
-    const releaseDate = loanCreatedDate
-      ? parseDateOnly(loanCreatedDate).value
-      : context.businessDate;
+    let releaseDate = context.businessDate;
+    if (loanCreatedDate) {
+      try {
+        releaseDate = parseDateOnly(loanCreatedDate).value;
+      } catch {
+        throw new BadRequestException(
+          'loanCreatedDate must be a valid date using YYYY-MM-DD format',
+        );
+      }
+    }
     const chargePolicyEnrollment =
       this.loanChargePolicyService.resolveEnrollment(releaseDate);
 

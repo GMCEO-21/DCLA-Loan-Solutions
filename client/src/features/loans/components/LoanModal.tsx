@@ -50,7 +50,7 @@ import {
   calculateLoanDetails,
   formatCurrency,
 } from "../utils/loanCalculations";
-import { formatCollectionDate } from "../utils/date";
+import { formatCollectionDate, toDateOnlyString } from "../utils/date";
 import { generateLoanPassbookPDF } from "@components/export/loanPassbookPDF";
 import {
   transactionHistoryQueryKey,
@@ -396,6 +396,9 @@ export default function LoanModal({
       const createdLoan = await LoansAPI.create({
         borrowerId: member.id,
         ...formData,
+        loanCreatedDate: formData.loanCreatedDate
+          ? toDateOnlyString(formData.loanCreatedDate)
+          : undefined,
       });
       loanListCacheRef.current.clear();
       memberLoanCountRef.current = null;
