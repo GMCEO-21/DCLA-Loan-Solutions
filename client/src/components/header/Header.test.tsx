@@ -63,9 +63,13 @@ describe("Application navigation", () => {
         "Portfolio",
         "Transactions",
         "Approvals",
+        "Waivers",
       ],
     ],
-    ["manager", ["Dashboard", "Portfolio", "Transactions", "Approvals"]],
+    [
+      "manager",
+      ["Dashboard", "Portfolio", "Transactions", "Approvals", "Waivers"],
+    ],
     ["cashier", ["Collections", "Transactions"]],
     ["loan processor", ["Members", "Centers", "Transactions"]],
   ])("preserves authorized desktop navigation for %s", (role, labels) => {

@@ -1,5 +1,10 @@
 # DCLA-06 Manual QA Checklist
 
+> **QA date baseline:** The dates below are aligned to a manual sweep run on
+> October 7, 2026 (Manila business date). If testing on a different date,
+> recalculate the release dates, Friday cutoffs, maturity date, and overdue-day
+> count before creating the QA loans.
+
 ## 2. Verify Legacy Isolation
 
 1. Log in as an admin.
@@ -41,7 +46,7 @@ For every loan:
 3. Open the new member.
 4. Click **Create New Loan**.
 5. Enable **Set custom loan creation date**.
-6. Set the date to `2026-09-07`.
+6. Set the date to `2026-09-21`.
 7. Set the term to `8 weeks`.
 8. Use zero service charge, notarial fee, and savings unless the application
    requires otherwise.
@@ -59,8 +64,8 @@ Create the following cases:
 ### Acceptance Criteria
 
 - Every new loan displays policy `DCLA_2026_V1`.
-- The effective date displays `2026-09-07`.
-- The first scheduled due date is `2026-09-13`.
+- The effective date displays `2026-09-21`.
+- The first scheduled due date is `2026-09-27`.
 - Old loans remain legacy loans.
 
 ## 5. Record Full and Partial Payments
@@ -71,7 +76,7 @@ Complete these payments before running the manual sweep.
 
 1. Open **Collections**.
 2. Select **Collections by Date**.
-3. Choose `2026-09-13`.
+3. Choose `2026-09-27`.
 4. Open `DCLA06 QA CENTER`.
 5. Find `QA FULL PAYMENT`.
 6. Click **Payment**.
@@ -155,32 +160,32 @@ Create another QA member and loan with these values:
 | Center | `DCLA06 QA CENTER` |
 | Principal | PHP 4,000 |
 | Term | 4 weeks |
-| Loan creation date | `2026-08-03` |
+| Loan creation date | `2026-08-17` |
 
 With a Sunday collection day, the expected due dates are:
 
-- `2026-08-09`
-- `2026-08-16`
 - `2026-08-23`
 - `2026-08-30`
+- `2026-09-06`
+- `2026-09-13`
 
 Leave the loan completely unpaid, then run the manual sweep.
 
-### Expected Amounts as of September 22, 2026
+### Expected Amounts as of October 7, 2026
 
 - Weekly penalties before maturity: 3 x PHP 100 = PHP 300.
 - Maturity penalty: PHP 4,000 x 30% = PHP 1,200.
 - Daily PDI: PHP 4,000 x 10% / 30 = PHP 13.33.
-- Overdue days from August 31 through September 22: 23 days.
-- Total PDI: PHP 306.59.
-- Total outstanding charges: PHP 1,806.59.
+- Overdue days from September 14 through October 7: 24 days.
+- Total PDI: PHP 319.92.
+- Total outstanding charges: PHP 1,819.92.
 
 ### Acceptance Criteria
 
 - Exactly three weekly penalties exist.
 - No weekly penalty exists after maturity.
 - Exactly one PHP 1,200 maturity penalty exists.
-- Exactly 23 daily PDI entries exist.
+- Exactly 24 daily PDI entries exist.
 - The PDI base is PHP 4,000 and does not include previous interest.
 - Re-running the sweep creates no duplicates.
 - Reconciliation displays **Matched**.
@@ -204,8 +209,8 @@ payment using a cashier account.
 | Bucket | Amount |
 | --- | ---: |
 | Penalty | PHP 1,500 |
-| Past-due interest | PHP 306.59 |
-| Contractual loan | PHP 193.41 |
+| Past-due interest | PHP 319.92 |
+| Contractual loan | PHP 180.08 |
 | **Total** | **PHP 2,000** |
 
 Approve the collection.
@@ -215,8 +220,8 @@ Approve the collection.
 - The preview follows the penalty -> PDI -> contractual allocation order.
 - Outstanding penalty becomes zero.
 - Outstanding PDI becomes zero.
-- Contractual `amountPaid` increases only by PHP 193.41.
-- Loan balance becomes PHP 4,206.59.
+- Contractual `amountPaid` increases only by PHP 180.08.
+- Loan balance becomes PHP 4,219.92.
 - Charge payments do not inflate contractual payment totals.
 - Ledger reconciliation remains **Matched**.
 
@@ -251,7 +256,7 @@ Use a separate matured QA loan that still has outstanding charges.
 ### Acceptance Criteria
 
 - Penalty and PDI payments are reopened exactly.
-- The PHP 193.41 contractual payment is reversed.
+- The PHP 180.08 contractual payment is reversed.
 - Loan balance returns to PHP 4,400.
 - Append-only `payment_reversal` charge rows appear.
 - A duplicate reversal is rejected.
