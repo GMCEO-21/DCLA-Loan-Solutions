@@ -1,5 +1,22 @@
 export type SavingsHistoryScope = "ledger" | "legacy";
 
+export interface SavingsSummary {
+  entries: Array<{
+    id: string;
+    borrowerId: string | null;
+    loanId: string | null;
+    amount: number;
+    remarks: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  totalDeposits: number;
+  currentSavings: number;
+  activeLoanId: string | null;
+  hasActiveLoan: boolean;
+  activeLoanSavings: number;
+}
+
 export type SavingsEventType =
   | "opening_balance"
   | "loan_origination_contribution"

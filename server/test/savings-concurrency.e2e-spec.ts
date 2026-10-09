@@ -119,6 +119,7 @@ describeWithPostgres('Savings correctness against real PostgreSQL', () => {
       savingsRepository,
       dataSource.getRepository(Member),
       loanRepository,
+      loansService,
     );
     savingsHistoryService = new SavingsHistoryService(
       savingsRepository,

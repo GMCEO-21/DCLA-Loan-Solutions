@@ -36,12 +36,15 @@ interface MemberLite {
 
 interface SavingsSummary {
   activeLoanId: string | null;
-  activeLoanSavings: number;
+  currentSavings: number;
+  hasActiveLoan: boolean;
 }
 
 type SavingsSummaryResponse = {
   activeLoanId?: string | null;
   activeLoanSavings?: number;
+  currentSavings?: number;
+  hasActiveLoan?: boolean;
 };
 
 type SavingsTransactionResponse = {
@@ -78,7 +81,8 @@ export function SavingsDepositDialog({
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const previewAmount = Number.parseFloat(amount || "0");
-  const currentSavings = summary?.activeLoanSavings ?? 0;
+  const currentSavings = summary?.currentSavings ?? 0;
+  const hasActiveLoan = Boolean(summary?.hasActiveLoan && summary.activeLoanId);
   const isWithdraw = mode === "withdraw";
   const projectedSavings = useMemo(() => {
     if (Number.isNaN(previewAmount) || previewAmount <= 0) {
@@ -114,7 +118,11 @@ export function SavingsDepositDialog({
       .then((data: SavingsSummaryResponse) => {
         setSummary({
           activeLoanId: data?.activeLoanId ?? null,
-          activeLoanSavings: Number(data?.activeLoanSavings ?? 0),
+          currentSavings: Number(
+            data?.currentSavings ?? data?.activeLoanSavings ?? 0,
+          ),
+          hasActiveLoan:
+            data?.hasActiveLoan ?? Boolean(data?.activeLoanId ?? null),
         });
       })
       .catch((err: unknown) => {
@@ -130,7 +138,8 @@ export function SavingsDepositDialog({
         );
         setSummary({
           activeLoanId: null,
-          activeLoanSavings: 0,
+          currentSavings: 0,
+          hasActiveLoan: false,
         });
       })
       .finally(() => {
@@ -144,7 +153,7 @@ export function SavingsDepositDialog({
       return;
     }
 
-    if (!summary?.activeLoanId) {
+    if (!hasActiveLoan || !summary?.activeLoanId) {
       setError("This member has no active loan to attach savings to.");
       return;
     }
@@ -185,7 +194,8 @@ export function SavingsDepositDialog({
 
       setSummary({
         activeLoanId: updatedLoanId,
-        activeLoanSavings: updatedSavings,
+        currentSavings: updatedSavings,
+        hasActiveLoan: true,
       });
       setSuccessMessage(
         isWithdraw
@@ -221,7 +231,7 @@ export function SavingsDepositDialog({
     !amount.trim() ||
     Number.isNaN(previewAmount) ||
     previewAmount <= 0 ||
-    !summary?.activeLoanId ||
+    !hasActiveLoan ||
     insufficientFunds;
 
   return (
@@ -291,7 +301,7 @@ export function SavingsDepositDialog({
             </Alert>
           )}
 
-          {!summaryLoading && !summary?.activeLoanId && !summaryError ? (
+          {!summaryLoading && !hasActiveLoan && !summaryError ? (
             <Alert severity="warning" sx={{ mb: 2 }}>
               This member does not currently have an active loan. Savings
               transactions require an active loan to attach funds to.
@@ -316,8 +326,18 @@ export function SavingsDepositDialog({
               onChange={(_, value) => value && setMode(value)}
               sx={{ alignSelf: "center" }}
             >
-              <ToggleButton value="deposit">Deposit</ToggleButton>
-              <ToggleButton value="withdraw">Withdraw</ToggleButton>
+              <ToggleButton
+                value="deposit"
+                disabled={summaryLoading || !hasActiveLoan}
+              >
+                Deposit
+              </ToggleButton>
+              <ToggleButton
+                value="withdraw"
+                disabled={summaryLoading || !hasActiveLoan}
+              >
+                Withdraw
+              </ToggleButton>
             </ToggleButtonGroup>
 
             <Card
@@ -377,6 +397,7 @@ export function SavingsDepositDialog({
                   : "Enter the amount to add to the member's savings."
               }
               error={insufficientFunds}
+              disabled={summaryLoading || !hasActiveLoan}
               fullWidth
               inputProps={{ min: 0, step: "0.01" }}
             />
@@ -388,9 +409,7 @@ export function SavingsDepositDialog({
                 <Divider sx={{ my: 1 }} />
                 <Typography variant="body2" sx={{ color: "#1e293b" }}>
                   Loan Status:{" "}
-                  <strong>
-                    {summary?.activeLoanId ? "Active" : "Not Available"}
-                  </strong>
+                  <strong>{hasActiveLoan ? "Active" : "Not Available"}</strong>
                 </Typography>
                 <Typography variant="body2" sx={{ color: "#1e293b" }}>
                   Savings After Transaction:

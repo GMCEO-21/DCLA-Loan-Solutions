@@ -11,6 +11,7 @@ import { Loan } from '../loans/loan.entity';
 import { DepositSavingsDto } from './dto/deposit-savings.dto';
 import { WithdrawSavingsDto } from './dto/withdraw-savings.dto';
 import { getFinancialBusinessDate } from '../common/financial-business-date';
+import { LoansService } from '../loans/loans.service';
 
 @Injectable()
 export class SavingsService {
@@ -21,6 +22,7 @@ export class SavingsService {
     private readonly memberRepository: Repository<Member>,
     @InjectRepository(Loan)
     private readonly loanRepository: Repository<Loan>,
+    private readonly loansService: LoansService,
   ) {}
 
   async deposit(dto: DepositSavingsDto, actorId?: string) {
@@ -191,15 +193,13 @@ export class SavingsService {
       throw new NotFoundException(`Member #${memberId} not found`);
     }
 
-    const [entries, activeLoan] = await Promise.all([
+    const [entries, authoritativeLoan] = await Promise.all([
       this.savingsRepository.find({
         where: { borrower: { id: memberId } },
         relations: ['loan', 'borrower'],
         order: { createdAt: 'DESC' },
       }),
-      this.loanRepository.findOne({
-        where: { borrower: { id: memberId }, status: 'active' },
-      }),
+      this.loansService.findAuthoritativeSavingsLoanForMember(memberId),
     ]);
 
     const totalDeposits = entries.reduce(
@@ -207,11 +207,18 @@ export class SavingsService {
       0,
     );
 
+    const hasActiveLoan = authoritativeLoan?.status === 'active';
+    const currentSavings = authoritativeLoan
+      ? this.toNumber(authoritativeLoan.savings)
+      : 0;
+
     return {
       entries: entries.map((entry) => this.mapSavings(entry, memberId)),
       totalDeposits,
-      activeLoanSavings: activeLoan ? this.toNumber(activeLoan.savings) : 0,
-      activeLoanId: activeLoan?.id ?? null,
+      currentSavings,
+      activeLoanSavings: hasActiveLoan ? currentSavings : 0,
+      activeLoanId: hasActiveLoan ? authoritativeLoan.id : null,
+      hasActiveLoan,
     };
   }
 

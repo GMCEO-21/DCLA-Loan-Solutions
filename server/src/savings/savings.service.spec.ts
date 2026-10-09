@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/require-await */
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { EntityManager, Repository } from 'typeorm';
 import { Loan } from '../loans/loan.entity';
 import { Member } from '../members/entities/member.entity';
 import { Savings, SavingsEventType } from './savings.entity';
 import { SavingsService } from './savings.service';
 import { DepositSavingsDto } from './dto/deposit-savings.dto';
+import { LoansService } from '../loans/loans.service';
 
 interface HarnessState {
   loan: Loan;
@@ -100,6 +101,7 @@ function createHarness(initialSavings = 5000) {
     {} as Repository<Savings>,
     {} as Repository<Member>,
     loanRepository,
+    {} as LoansService,
   );
 
   return {
@@ -110,6 +112,35 @@ function createHarness(initialSavings = 5000) {
       failLoanSave = value;
     },
   };
+}
+
+function createSummaryHarness(
+  authoritativeLoan: Loan | null,
+  entries: Savings[] = [],
+  selectorError?: Error,
+) {
+  const savingsRepository = {
+    find: jest.fn(async () => entries),
+  } as unknown as Repository<Savings>;
+  const memberRepository = {
+    findOne: jest.fn(async () => ({ id: 'member-1' }) as Member),
+  } as unknown as Repository<Member>;
+  const findAuthoritativeSavingsLoanForMember = selectorError
+    ? jest.fn(async () => {
+        throw selectorError;
+      })
+    : jest.fn(async () => authoritativeLoan);
+  const loansService = {
+    findAuthoritativeSavingsLoanForMember,
+  } as unknown as LoansService;
+  const service = new SavingsService(
+    savingsRepository,
+    memberRepository,
+    {} as Repository<Loan>,
+    loansService,
+  );
+
+  return { service, findAuthoritativeSavingsLoanForMember };
 }
 
 describe('SavingsService', () => {
@@ -293,5 +324,87 @@ describe('SavingsService', () => {
     expect(harness.getState().entries.map((entry) => entry.amount)).toEqual([
       1000, -2000,
     ]);
+  });
+
+  describe('member savings summary', () => {
+    it('returns the active authoritative loan savings and mutation eligibility', async () => {
+      const loan = {
+        id: 'active-loan',
+        status: 'active',
+        savings: 2500,
+      } as Loan;
+      const { service, findAuthoritativeSavingsLoanForMember } =
+        createSummaryHarness(loan);
+
+      await expect(service.findByMember('member-1')).resolves.toMatchObject({
+        currentSavings: 2500,
+        activeLoanSavings: 2500,
+        activeLoanId: 'active-loan',
+        hasActiveLoan: true,
+      });
+      expect(findAuthoritativeSavingsLoanForMember).toHaveBeenCalledWith(
+        'member-1',
+      );
+    });
+
+    it('exposes retained savings from the authoritative historical loan without mutation eligibility', async () => {
+      const loan = {
+        id: 'completed-loan',
+        status: 'paid',
+        savings: 3500,
+      } as Loan;
+      const { service } = createSummaryHarness(loan);
+
+      await expect(service.findByMember('member-1')).resolves.toMatchObject({
+        currentSavings: 3500,
+        activeLoanSavings: 0,
+        activeLoanId: null,
+        hasActiveLoan: false,
+      });
+    });
+
+    it('returns zero for a member who has never had a loan', async () => {
+      const { service } = createSummaryHarness(null);
+
+      await expect(service.findByMember('member-1')).resolves.toMatchObject({
+        currentSavings: 0,
+        activeLoanSavings: 0,
+        activeLoanId: null,
+        hasActiveLoan: false,
+      });
+    });
+
+    it('uses only the current authoritative reloan snapshot', async () => {
+      const newLoan = {
+        id: 'new-loan',
+        status: 'active',
+        savings: 3500,
+      } as Loan;
+      const historicalEntry = {
+        amount: 3000,
+        borrower: { id: 'member-1' },
+        loan: { id: 'old-loan' },
+      } as Savings;
+      const { service } = createSummaryHarness(newLoan, [historicalEntry]);
+
+      const result = await service.findByMember('member-1');
+
+      expect(result.currentSavings).toBe(3500);
+      expect(result.currentSavings).not.toBe(6500);
+      expect(result.totalDeposits).toBe(3000);
+    });
+
+    it.each([
+      'Authoritative savings balance is ambiguous because the member has multiple active loans',
+      'Authoritative savings balance is ambiguous because the latest loans have the same creation time',
+    ])('preserves selector conflict: %s', async (message) => {
+      const { service } = createSummaryHarness(
+        null,
+        [],
+        new ConflictException(message),
+      );
+
+      await expect(service.findByMember('member-1')).rejects.toThrow(message);
+    });
   });
 });

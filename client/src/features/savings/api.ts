@@ -1,5 +1,9 @@
 import api from "@utils/api";
-import type { SavingsHistoryParams, SavingsHistoryResponse } from "./types";
+import type {
+  SavingsHistoryParams,
+  SavingsHistoryResponse,
+  SavingsSummary,
+} from "./types";
 
 export const savingsService = {
   deposit: async (data: {
@@ -20,8 +24,10 @@ export const savingsService = {
     const response = await api.post("/savings/withdraw", data);
     return response.data;
   },
-  getByMember: async (memberId: string) => {
-    const response = await api.get(`/savings/member/${memberId}`);
+  getByMember: async (memberId: string): Promise<SavingsSummary> => {
+    const response = await api.get<SavingsSummary>(
+      `/savings/member/${memberId}`,
+    );
     return response.data;
   },
   getHistory: async ({

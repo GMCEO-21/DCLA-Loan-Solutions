@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "@mui/material/styles";
@@ -17,6 +23,22 @@ vi.mock("../api", () => ({
 }));
 
 const member = { id: "member-a", firstName: "Evelyn", lastName: "Abordo" };
+const savingsSummary = (
+  overrides: Partial<{
+    currentSavings: number;
+    activeLoanId: string | null;
+    hasActiveLoan: boolean;
+    activeLoanSavings: number;
+  }> = {},
+) => ({
+  entries: [],
+  totalDeposits: 0,
+  currentSavings: 5000,
+  activeLoanId: "loan-a" as string | null,
+  hasActiveLoan: true,
+  activeLoanSavings: 5000,
+  ...overrides,
+});
 const money = (amount: number) => `₱${amount.toFixed(2)}`;
 
 function renderDialog(onSuccess = vi.fn()) {
@@ -69,10 +91,7 @@ async function openAndCloseHistory() {
 describe("SavingsDepositDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(savingsService.getByMember).mockResolvedValue({
-      activeLoanId: "loan-a",
-      activeLoanSavings: 5000,
-    });
+    vi.mocked(savingsService.getByMember).mockResolvedValue(savingsSummary());
     vi.mocked(savingsService.getHistory).mockResolvedValue({
       scope: "ledger",
       items: [],
@@ -157,5 +176,59 @@ describe("SavingsDepositDialog", () => {
     await waitFor(() =>
       expect(savingsService.getHistory).toHaveBeenCalledTimes(2),
     );
+  });
+
+  it("shows retained historical savings while keeping mutations unavailable and history accessible", async () => {
+    vi.mocked(savingsService.getByMember).mockResolvedValue(
+      savingsSummary({
+        currentSavings: 3500,
+        activeLoanId: null,
+        hasActiveLoan: false,
+        activeLoanSavings: 0,
+      }),
+    );
+    renderDialog();
+
+    expect(
+      await screen.findByRole("heading", { level: 4, name: money(3500) }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deposit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Record deposit" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/Savings transactions require an active loan/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "View Savings History" }),
+    );
+    const historyDialog = await screen.findByRole("dialog", {
+      name: "Savings History",
+    });
+    expect(historyDialog).toBeInTheDocument();
+    expect(within(historyDialog).getByText(money(3500))).toBeInTheDocument();
+  });
+
+  it("shows zero and keeps mutations unavailable when the member has no loans", async () => {
+    vi.mocked(savingsService.getByMember).mockResolvedValue(
+      savingsSummary({
+        currentSavings: 0,
+        activeLoanId: null,
+        hasActiveLoan: false,
+        activeLoanSavings: 0,
+      }),
+    );
+    renderDialog();
+
+    expect(
+      await screen.findByRole("heading", { level: 4, name: money(0) }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deposit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Withdraw" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "View Savings History" }),
+    ).toBeEnabled();
   });
 });
