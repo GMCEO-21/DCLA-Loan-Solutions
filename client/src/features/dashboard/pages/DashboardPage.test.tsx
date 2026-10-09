@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useRecentSmsActivity } from "../hooks/useRecentSmsActivity";
+import { useSmsCredits } from "../hooks/useSmsCredits";
 import DashboardPage from "./DashboardPage";
 
 vi.mock("@components/layout/PrivateLayout", () => ({
@@ -15,9 +16,13 @@ vi.mock("@features/auth/authStore", () => ({
 vi.mock("../hooks/useRecentSmsActivity", () => ({
   useRecentSmsActivity: vi.fn(),
 }));
+vi.mock("../hooks/useSmsCredits", () => ({
+  useSmsCredits: vi.fn(),
+}));
 
 describe("DashboardPage", () => {
   const refetch = vi.fn(async () => undefined);
+  const refetchCredits = vi.fn(async () => undefined);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -29,6 +34,12 @@ describe("DashboardPage", () => {
       loading: false,
       error: null,
       refetch,
+    });
+    vi.mocked(useSmsCredits).mockReturnValue({
+      credits: 1847,
+      loading: false,
+      error: false,
+      refetch: refetchCredits,
     });
   });
 
@@ -59,6 +70,8 @@ describe("DashboardPage", () => {
       screen.getByRole("button", { name: "Review Approvals" }),
     ).toBeInTheDocument();
     expect(screen.getByText("SMS Notifications")).toBeInTheDocument();
+    expect(useRecentSmsActivity).toHaveBeenCalledWith(10);
+    expect(screen.getByText("1,847 remaining")).toBeInTheDocument();
     expect(screen.queryByText("Total Portfolio")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Center Exposure Overview"),
@@ -80,10 +93,44 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Approvals destination")).toBeInTheDocument();
   });
 
-  it("refreshes recent SMS data through the read-only hook", () => {
+  it("refreshes recent SMS data and SMS credits independently", () => {
     renderDashboard();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(refetch).toHaveBeenCalledTimes(1);
+    expect(refetchCredits).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps recent SMS activity visible when credits are unavailable", () => {
+    vi.mocked(useRecentSmsActivity).mockReturnValue({
+      data: {
+        items: [
+          {
+            notificationId: "notification-1",
+            memberName: "Maria Santos",
+            eventType: "loan_created",
+            status: "sent",
+            createdAt: "2026-09-01T00:00:00.000Z",
+            updatedAt: "2026-09-01T00:01:00.000Z",
+            sentAt: "2026-09-01T00:01:00.000Z",
+          },
+        ],
+        summary: { sentToday: 1, pending: 0, failedToday: 0 },
+      },
+      loading: false,
+      error: null,
+      refetch,
+    });
+    vi.mocked(useSmsCredits).mockReturnValue({
+      credits: undefined,
+      loading: false,
+      error: true,
+      refetch: refetchCredits,
+    });
+
+    renderDashboard();
+
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Maria Santos")).toBeInTheDocument();
   });
 });

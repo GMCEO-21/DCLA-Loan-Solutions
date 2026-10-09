@@ -7,11 +7,28 @@ import { useAuthStore } from "@features/auth/authStore";
 import { useNavigate } from "react-router-dom";
 import RecentSmsActivity from "../components/RecentSmsActivity";
 import { useRecentSmsActivity } from "../hooks/useRecentSmsActivity";
+import { useSmsCredits } from "../hooks/useSmsCredits";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { data, loading, error, refetch } = useRecentSmsActivity(10);
+  const {
+    data,
+    loading: activityLoading,
+    error: activityError,
+    refetch: refetchActivity,
+  } = useRecentSmsActivity(10);
+  const {
+    credits,
+    loading: creditsLoading,
+    error: creditsError,
+    refetch: refetchCredits,
+  } = useSmsCredits();
+
+  const refreshDashboard = () => {
+    void refetchActivity();
+    void refetchCredits();
+  };
 
   const nowLabel = new Intl.DateTimeFormat("en-PH", {
     timeZone: "Asia/Manila",
@@ -31,8 +48,8 @@ export default function DashboardPage() {
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
-              onClick={() => void refetch()}
-              disabled={loading}
+              onClick={refreshDashboard}
+              disabled={activityLoading || creditsLoading}
               sx={{ minHeight: 44 }}
             >
               Refresh
@@ -103,9 +120,12 @@ export default function DashboardPage() {
 
           <RecentSmsActivity
             data={data}
-            loading={loading}
-            error={error}
-            onRetry={refetch}
+            loading={activityLoading}
+            error={activityError}
+            credits={credits}
+            creditsLoading={creditsLoading}
+            creditsError={creditsError}
+            onRetry={refetchActivity}
           />
         </Stack>
       </Box>

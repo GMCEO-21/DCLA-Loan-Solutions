@@ -22,6 +22,14 @@ interface UniSmsMessageResponse {
   fail_reason?: unknown;
 }
 
+interface UniSmsAccountResponse {
+  sms_credits?: unknown;
+}
+
+export interface SmsCreditsResult {
+  credits: number;
+}
+
 @Injectable()
 export class UniSmsProvider implements SmsProvider {
   constructor(private readonly config: ConfigService) {}
@@ -49,10 +57,56 @@ export class UniSmsProvider implements SmsProvider {
     });
   }
 
+  async getCredits(): Promise<SmsCreditsResult> {
+    this.requireEnabled();
+    const data = await this.requestJson<UniSmsAccountResponse>('/account', {
+      method: 'GET',
+    });
+    const credits = data.sms_credits;
+
+    if (
+      typeof credits !== 'number' ||
+      !Number.isFinite(credits) ||
+      !Number.isSafeInteger(credits) ||
+      credits < 0
+    ) {
+      throw new SmsProviderError(
+        'UNISMS_INVALID_ACCOUNT_RESPONSE',
+        'UniSMS returned an invalid account response.',
+        false,
+      );
+    }
+
+    return { credits };
+  }
+
   private async request(
     path: string,
     init: RequestInit,
   ): Promise<SmsProviderResult> {
+    const data = await this.requestJson<UniSmsMessageResponse>(path, init);
+
+    const message =
+      data.message && typeof data.message === 'object'
+        ? data.message
+        : undefined;
+    const providerMessageId = message?.reference_id;
+    if (!providerMessageId) {
+      throw new SmsProviderError(
+        'UNISMS_INVALID_RESPONSE',
+        'UniSMS did not return a message reference.',
+        true,
+      );
+    }
+
+    return {
+      providerMessageId,
+      status: this.mapStatus(message?.status),
+      failureReason: message?.fail_reason ?? null,
+    };
+  }
+
+  private async requestJson<T>(path: string, init: RequestInit): Promise<T> {
     const secret = this.requiredConfig('UNISMS_API_SECRET');
     const baseUrl = (
       this.config.get<string>('UNISMS_BASE_URL') || 'https://unismsapi.com/api'
@@ -72,32 +126,13 @@ export class UniSmsProvider implements SmsProvider {
           ...init.headers,
         },
       });
-      const data = (await response
-        .json()
-        .catch(() => ({}))) as UniSmsMessageResponse;
+      const data = (await response.json().catch(() => ({}))) as T;
 
       if (!response.ok) {
-        throw this.httpError(response.status, data);
+        throw this.httpError(response.status, data as UniSmsMessageResponse);
       }
 
-      const message =
-        data.message && typeof data.message === 'object'
-          ? data.message
-          : undefined;
-      const providerMessageId = message?.reference_id;
-      if (!providerMessageId) {
-        throw new SmsProviderError(
-          'UNISMS_INVALID_RESPONSE',
-          'UniSMS did not return a message reference.',
-          true,
-        );
-      }
-
-      return {
-        providerMessageId,
-        status: this.mapStatus(message?.status),
-        failureReason: message?.fail_reason ?? null,
-      };
+      return data;
     } catch (error) {
       if (error instanceof SmsProviderError) throw error;
       if (error instanceof Error && error.name === 'AbortError') {

@@ -1,5 +1,6 @@
 export type SmsEventType = "loan_created" | "repayment_posted";
-export type SmsNotificationStatus = "pending" | "processing" | "sent" | "failed";
+export type SmsNotificationStatus =
+  "pending" | "processing" | "sent" | "failed";
 
 export interface SmsEligibilityItem {
   resourceId: string;
@@ -58,4 +59,8 @@ export interface RecentSmsActivityResult {
     pending: number;
     failedToday: number;
   };
+}
+
+export interface SmsCreditsResponse {
+  credits: number;
 }

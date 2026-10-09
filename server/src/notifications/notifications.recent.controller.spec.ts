@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   INestApplication,
+  ServiceUnavailableException,
   ValidationPipe,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -21,6 +22,7 @@ describe('NotificationsController recent SMS route', () => {
   };
   const notifications = {
     getRecentSms: jest.fn().mockResolvedValue(response),
+    getSmsCredits: jest.fn().mockResolvedValue({ credits: 1847 }),
     getStatus: jest.fn(),
   };
 
@@ -55,7 +57,10 @@ describe('NotificationsController recent SMS route', () => {
   });
 
   afterAll(async () => app.close());
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    notifications.getSmsCredits.mockResolvedValue({ credits: 1847 });
+  });
 
   it('resolves /recent before the dynamic notification ID route', async () => {
     await request(app.getHttpServer())
@@ -76,6 +81,44 @@ describe('NotificationsController recent SMS route', () => {
     expect(notifications.getRecentSms).toHaveBeenCalledWith(25);
   });
 
+  it('resolves /credits before the dynamic notification ID route', async () => {
+    await request(app.getHttpServer())
+      .get('/notifications/sms/credits')
+      .set('x-test-role', ROLE.Manager)
+      .expect(200, { credits: 1847 });
+
+    expect(notifications.getSmsCredits).toHaveBeenCalledTimes(1);
+    expect(notifications.getStatus).not.toHaveBeenCalled();
+  });
+
+  it('preserves a valid zero credit balance', async () => {
+    notifications.getSmsCredits.mockResolvedValueOnce({ credits: 0 });
+
+    await request(app.getHttpServer())
+      .get('/notifications/sms/credits')
+      .set('x-test-role', ROLE.Manager)
+      .expect(200, { credits: 0 });
+  });
+
+  it('returns a safe provider unavailable response', async () => {
+    notifications.getSmsCredits.mockRejectedValueOnce(
+      new ServiceUnavailableException(
+        'SMS credit information is temporarily unavailable.',
+      ),
+    );
+
+    const result = await request(app.getHttpServer())
+      .get('/notifications/sms/credits')
+      .set('x-test-role', ROLE.Manager)
+      .expect(503);
+
+    expect(result.body).toMatchObject({
+      statusCode: 503,
+      message: 'SMS credit information is temporarily unavailable.',
+    });
+    expect(JSON.stringify(result.body)).not.toContain('secret');
+  });
+
   it.each(['0', '26', 'not-a-number'])(
     'rejects invalid limit %s',
     async (limit) => {
@@ -93,6 +136,26 @@ describe('NotificationsController recent SMS route', () => {
       .set('x-test-role', role)
       .expect(200);
   });
+
+  it.each([ROLE.Manager, ROLE.Admin])(
+    'allows the %s role to read SMS credits',
+    async (role) => {
+      await request(app.getHttpServer())
+        .get('/notifications/sms/credits')
+        .set('x-test-role', role)
+        .expect(200, { credits: 1847 });
+    },
+  );
+
+  it.each([ROLE.Cashier, ROLE.LoanProcessor])(
+    'rejects the %s role from SMS credits',
+    async (role) => {
+      await request(app.getHttpServer())
+        .get('/notifications/sms/credits')
+        .set('x-test-role', role)
+        .expect(403);
+    },
+  );
 
   it.each([undefined, ROLE.LoanProcessor])(
     'rejects an unauthorized role %s',

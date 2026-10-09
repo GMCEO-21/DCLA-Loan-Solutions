@@ -31,6 +31,12 @@ const result = (items: RecentSmsActivityItem[]): RecentSmsActivityResult => ({
   summary: { sentToday: 24, pending: 2, failedToday: 1 },
 });
 
+const creditsProps = {
+  credits: 1847,
+  creditsLoading: false,
+  creditsError: false,
+};
+
 describe("RecentSmsActivity", () => {
   it("renders the compact summary and user-friendly event labels", () => {
     render(
@@ -44,6 +50,7 @@ describe("RecentSmsActivity", () => {
         ])}
         loading={false}
         error={null}
+        {...creditsProps}
       />,
     );
 
@@ -54,6 +61,8 @@ describe("RecentSmsActivity", () => {
     expect(within(summary).getByText("2")).toBeInTheDocument();
     expect(within(summary).getByText("Failed today")).toBeInTheDocument();
     expect(within(summary).getByText("1")).toBeInTheDocument();
+    expect(within(summary).getByText("SMS Credits")).toBeInTheDocument();
+    expect(within(summary).getByText("1,847 remaining")).toBeInTheDocument();
     expect(screen.getByText("Loan Approval")).toBeInTheDocument();
     expect(screen.getByText("Repayment")).toBeInTheDocument();
     expect(screen.getByText("Unknown client")).toBeInTheDocument();
@@ -67,7 +76,12 @@ describe("RecentSmsActivity", () => {
       item("failed", "failed"),
     ];
     render(
-      <RecentSmsActivity data={result(rows)} loading={false} error={null} />,
+      <RecentSmsActivity
+        data={result(rows)}
+        loading={false}
+        error={null}
+        {...creditsProps}
+      />,
     );
 
     for (const status of ["sent", "pending", "processing", "failed"]) {
@@ -93,13 +107,18 @@ describe("RecentSmsActivity", () => {
   it("renders loading, empty, and focused error states", () => {
     const onRetry = vi.fn();
     const { rerender } = render(
-      <RecentSmsActivity data={null} loading error={null} />,
+      <RecentSmsActivity data={null} loading error={null} {...creditsProps} />,
     );
     expect(screen.getByTestId("recent-sms-loading")).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
 
     rerender(
-      <RecentSmsActivity data={result([])} loading={false} error={null} />,
+      <RecentSmsActivity
+        data={result([])}
+        loading={false}
+        error={null}
+        {...creditsProps}
+      />,
     );
     expect(screen.getByText("No SMS notifications yet.")).toBeInTheDocument();
 
@@ -108,6 +127,7 @@ describe("RecentSmsActivity", () => {
         data={null}
         loading={false}
         error="Unable to load recent SMS activity."
+        {...creditsProps}
         onRetry={onRetry}
       />,
     );
@@ -117,5 +137,45 @@ describe("RecentSmsActivity", () => {
     expect(screen.getAllByText("Unavailable")).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("distinguishes zero, loading, and unavailable credit states", () => {
+    const { rerender } = render(
+      <RecentSmsActivity
+        data={result([])}
+        loading={false}
+        error={null}
+        credits={0}
+        creditsLoading={false}
+        creditsError={false}
+      />,
+    );
+    expect(screen.getByText("0 remaining")).toBeInTheDocument();
+
+    rerender(
+      <RecentSmsActivity
+        data={result([])}
+        loading={false}
+        error={null}
+        credits={undefined}
+        creditsLoading
+        creditsError={false}
+      />,
+    );
+    expect(screen.queryByText("0 remaining")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
+
+    rerender(
+      <RecentSmsActivity
+        data={result([item("loan", "sent")])}
+        loading={false}
+        error={null}
+        credits={undefined}
+        creditsLoading={false}
+        creditsError
+      />,
+    );
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Maria Santos")).toBeInTheDocument();
   });
 });

@@ -1,4 +1,8 @@
 import { ConfigService } from '@nestjs/config';
+import {
+  BadGatewayException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import {
   SmsNotification,
@@ -6,6 +10,8 @@ import {
   SmsNotificationStatus,
 } from './entities/sms-notification.entity';
 import { NotificationsService } from './notifications.service';
+import { SmsProviderError } from './providers/sms-provider';
+import { UniSmsProvider } from './providers/unisms.provider';
 import { SmsRecipientNormalizer } from './sms-recipient-normalizer';
 import { SmsTemplateService } from './sms-template.service';
 
@@ -33,6 +39,7 @@ describe('NotificationsService', () => {
   let repository: any;
   let service: NotificationsService;
   let configValues: Record<string, string>;
+  let uniSmsProvider: { getCredits: jest.Mock };
 
   beforeEach(() => {
     store = [];
@@ -119,11 +126,54 @@ describe('NotificationsService', () => {
     const config = {
       get: jest.fn((key: string) => configValues[key]),
     } as unknown as ConfigService;
+    uniSmsProvider = { getCredits: jest.fn() };
     service = new NotificationsService(
       dataSource,
       config,
       new SmsRecipientNormalizer(),
       new SmsTemplateService(),
+      uniSmsProvider as unknown as UniSmsProvider,
+    );
+  });
+
+  it.each([1847, 0])(
+    'returns the safe SMS credit contract for %s',
+    async (credits) => {
+      uniSmsProvider.getCredits.mockResolvedValue({ credits });
+
+      await expect(service.getSmsCredits()).resolves.toEqual({ credits });
+    },
+  );
+
+  it('maps a malformed provider response to a safe bad gateway error', async () => {
+    uniSmsProvider.getCredits.mockRejectedValue(
+      new SmsProviderError(
+        'UNISMS_INVALID_ACCOUNT_RESPONSE',
+        'raw provider detail',
+        false,
+      ),
+    );
+
+    await expect(service.getSmsCredits()).rejects.toEqual(
+      new BadGatewayException(
+        'SMS credit information is temporarily unavailable.',
+      ),
+    );
+  });
+
+  it('maps provider availability failures to a safe service unavailable error', async () => {
+    uniSmsProvider.getCredits.mockRejectedValue(
+      new SmsProviderError(
+        'UNISMS_AUTHENTICATION_FAILED',
+        'secret provider detail',
+        false,
+      ),
+    );
+
+    await expect(service.getSmsCredits()).rejects.toEqual(
+      new ServiceUnavailableException(
+        'SMS credit information is temporarily unavailable.',
+      ),
     );
   });
 

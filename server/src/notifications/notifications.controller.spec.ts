@@ -16,7 +16,11 @@ describe('NotificationsController HTTP semantics', () => {
     ).toBe(HttpStatus.ACCEPTED);
   });
 
-  it.each(['getRepaymentEligibility', 'handleUniSmsWebhook'] as const)(
+  it.each([
+    'getRepaymentEligibility',
+    'getSmsCredits',
+    'handleUniSmsWebhook',
+  ] as const)(
     'does not change the status code for non-queue endpoint %s',
     (method) => {
       expect(

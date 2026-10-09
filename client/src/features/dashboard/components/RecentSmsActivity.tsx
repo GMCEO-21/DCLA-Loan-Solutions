@@ -28,6 +28,9 @@ interface RecentSmsActivityProps {
   data: RecentSmsActivityResult | null;
   loading: boolean;
   error: string | null;
+  credits: number | undefined;
+  creditsLoading: boolean;
+  creditsError: boolean;
   onRetry?: () => void | Promise<void>;
 }
 
@@ -47,6 +50,9 @@ export default function RecentSmsActivity({
   data,
   loading,
   error,
+  credits,
+  creditsLoading,
+  creditsError,
   onRetry,
 }: RecentSmsActivityProps) {
   const summaryMetrics = [
@@ -54,16 +60,29 @@ export default function RecentSmsActivity({
       label: "Sent today",
       value: data?.summary.sentToday,
       color: "success.main",
+      loading,
     },
     {
       label: "Pending",
       value: data?.summary.pending,
       color: "warning.dark",
+      loading,
     },
     {
       label: "Failed today",
       value: data?.summary.failedToday,
       color: "error.main",
+      loading,
+    },
+    {
+      label: "SMS Credits",
+      value:
+        credits !== undefined
+          ? `${credits.toLocaleString("en-PH")} remaining`
+          : undefined,
+      color: "text.primary",
+      loading: creditsLoading,
+      unavailable: creditsError,
     },
   ];
 
@@ -95,7 +114,8 @@ export default function RecentSmsActivity({
           display: "grid",
           gridTemplateColumns: {
             xs: "minmax(0, 1fr)",
-            sm: "repeat(3, minmax(0, 1fr))",
+            sm: "repeat(2, minmax(0, 1fr))",
+            md: "repeat(4, minmax(0, 1fr))",
           },
           borderTop: "1px solid",
           borderBottom: "1px solid",
@@ -110,11 +130,13 @@ export default function RecentSmsActivity({
               py: 1.5,
               borderRight: {
                 xs: "none",
-                sm: index === 2 ? "none" : "1px solid",
+                sm: index % 2 === 1 ? "none" : "1px solid",
+                md: index === 3 ? "none" : "1px solid",
               },
               borderBottom: {
-                xs: index === 2 ? "none" : "1px solid",
-                sm: "none",
+                xs: index === 3 ? "none" : "1px solid",
+                sm: index < 2 ? "1px solid" : "none",
+                md: "none",
               },
               borderColor: "divider",
             }}
@@ -122,14 +144,14 @@ export default function RecentSmsActivity({
             <Typography variant="body2" color="text.secondary">
               {metric.label}
             </Typography>
-            {metric.value !== undefined ? (
+            {metric.value !== undefined && !metric.unavailable ? (
               <Typography
                 variant="h6"
                 sx={{ color: metric.color, fontVariantNumeric: "tabular-nums" }}
               >
                 {metric.value}
               </Typography>
-            ) : loading ? (
+            ) : metric.loading ? (
               <Skeleton variant="text" width={44} height={28} />
             ) : (
               <Typography variant="body2" color="text.secondary">

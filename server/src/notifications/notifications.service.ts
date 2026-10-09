@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
@@ -19,6 +20,8 @@ import {
   SmsNotificationEventType,
   SmsNotificationStatus,
 } from './entities/sms-notification.entity';
+import { SmsProviderError } from './providers/sms-provider';
+import { SmsCreditsResult, UniSmsProvider } from './providers/unisms.provider';
 import { getManilaDayBounds, toUtcTimestampParameter } from './recent-sms-time';
 import { SmsRecipientNormalizer } from './sms-recipient-normalizer';
 import { SmsTemplateService } from './sms-template.service';
@@ -124,6 +127,7 @@ export class NotificationsService {
     private readonly config: ConfigService,
     private readonly recipientNormalizer: SmsRecipientNormalizer,
     private readonly templates: SmsTemplateService,
+    private readonly uniSmsProvider: UniSmsProvider,
   ) {}
 
   async getLoanEligibility(loanId: string): Promise<SmsEligibilityItem> {
@@ -208,6 +212,25 @@ export class NotificationsService {
     return this.toStatusResponse(notification);
   }
 
+  async getSmsCredits(): Promise<SmsCreditsResult> {
+    try {
+      return await this.uniSmsProvider.getCredits();
+    } catch (error) {
+      if (
+        error instanceof SmsProviderError &&
+        error.code === 'UNISMS_INVALID_ACCOUNT_RESPONSE'
+      ) {
+        throw new BadGatewayException(
+          'SMS credit information is temporarily unavailable.',
+        );
+      }
+
+      throw new ServiceUnavailableException(
+        'SMS credit information is temporarily unavailable.',
+      );
+    }
+  }
+
   async getRecentSms(limit = 10): Promise<RecentSmsResponse> {
     const repository = this.dataSource.getRepository(SmsNotification);
     const { startUtc, endUtc } = getManilaDayBounds();
@@ -229,7 +252,7 @@ export class NotificationsService {
       .addSelect('member.lastName', 'lastName')
       .orderBy('notification.createdAt', 'DESC')
       .addOrderBy('notification.id', 'DESC')
-      .take(limit);
+      .limit(limit);
 
     const summaryQuery = repository
       .createQueryBuilder('notification')

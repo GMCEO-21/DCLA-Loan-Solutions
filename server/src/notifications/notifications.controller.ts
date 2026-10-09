@@ -79,6 +79,12 @@ export class NotificationsController {
     return this.notifications.getRecentSms(query.limit);
   }
 
+  @Roles(ROLE.Manager)
+  @Get('notifications/sms/credits')
+  getSmsCredits() {
+    return this.notifications.getSmsCredits();
+  }
+
   @Roles(ROLE.LoanProcessor, ROLE.Manager)
   @Get('notifications/sms/:notificationId')
   getStatus(
