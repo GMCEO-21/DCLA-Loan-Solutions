@@ -46,14 +46,28 @@ export function createMigrationDatabaseOptions(
 }
 
 function databaseSslOptions(environment: Environment) {
+  if (
+    isProduction(environment) &&
+    isRenderInternalPostgresUrl(environment.DATABASE_URL)
+  ) {
+    return false;
+  }
+
   const certificate = decodeDatabaseCa(environment.DATABASE_SSL_CA_BASE64);
   if (certificate) {
     return { rejectUnauthorized: true, ca: certificate };
   }
 
   if (isProduction(environment)) {
-    throw new Error('DATABASE_SSL_CA_BASE64 is required in production.');
+    return { rejectUnauthorized: true };
   }
 
-  return { rejectUnauthorized: false };
+  return false;
+}
+
+function isRenderInternalPostgresUrl(value: string | undefined): boolean {
+  const hostname = new URL(value ?? '').hostname.toLowerCase();
+  // Render private Postgres hosts are generated single-label dpg-* names;
+  // public endpoints append a regional render.com DNS suffix.
+  return /^dpg-[a-z0-9]+-a$/.test(hostname);
 }

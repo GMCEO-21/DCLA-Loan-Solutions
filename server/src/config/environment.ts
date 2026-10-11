@@ -10,7 +10,6 @@ type Environment = Record<string, string | undefined>;
 const PRODUCTION_REQUIRED_VARIABLES = [
   'PORT',
   'DATABASE_URL',
-  'DATABASE_SSL_CA_BASE64',
   'JWT_SECRET',
   'JWT_REFRESH_SECRET',
   'CLIENT_URL',
@@ -80,7 +79,7 @@ export function validateEnvironment(environment: Environment): Environment {
   validateLoanChargeConfiguration(environment);
   validatePort(environment.PORT);
   validateDatabaseUrl(environment.DATABASE_URL, true);
-  validateCertificate(environment.DATABASE_SSL_CA_BASE64);
+  validateOptionalCertificate(environment.DATABASE_SSL_CA_BASE64);
 
   const origins = parseAllowedOrigins(environment.CLIENT_URL);
   if (origins.some((origin) => !origin.startsWith('https://'))) {
@@ -127,7 +126,7 @@ export function validateDatabaseEnvironment(environment: Environment): void {
   const production = isProduction(environment);
   validateDatabaseUrl(environment.DATABASE_URL, production);
   if (production) {
-    validateCertificate(environment.DATABASE_SSL_CA_BASE64);
+    validateOptionalCertificate(environment.DATABASE_SSL_CA_BASE64);
     if (isEnabled(environment.TYPEORM_SYNC)) {
       throw new Error('TYPEORM_SYNC cannot be true in production.');
     }
@@ -259,6 +258,8 @@ function validateDatabaseUrl(
   }
 }
 
-function validateCertificate(value: string | undefined): void {
-  decodeDatabaseCa(value);
+function validateOptionalCertificate(value: string | undefined): void {
+  if (value?.trim()) {
+    decodeDatabaseCa(value);
+  }
 }

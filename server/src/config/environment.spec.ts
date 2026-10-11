@@ -27,6 +27,36 @@ describe('validateEnvironment', () => {
     expect(validateEnvironment(environment)).toBe(environment);
   });
 
+  it('accepts production without a custom database CA', () => {
+    const environment = productionEnvironment();
+    delete (environment as Partial<typeof environment>).DATABASE_SSL_CA_BASE64;
+
+    expect(validateEnvironment(environment)).toBe(environment);
+  });
+
+  it('accepts a Render internal PostgreSQL URL without a custom CA', () => {
+    const environment = {
+      ...productionEnvironment(),
+      DATABASE_URL:
+        'postgresql://user:private-password@dpg-cabcdefghijklmnop-a/postgres',
+      DATABASE_SSL_CA_BASE64: undefined,
+    };
+
+    expect(validateEnvironment(environment)).toBe(environment);
+  });
+
+  it('rejects an invalid optional database CA', () => {
+    const environment = {
+      ...productionEnvironment(),
+      DATABASE_SSL_CA_BASE64:
+        Buffer.from('not-a-certificate').toString('base64'),
+    };
+
+    expect(() => validateEnvironment(environment)).toThrow(
+      'DATABASE_SSL_CA_BASE64 must contain a base64-encoded PEM certificate.',
+    );
+  });
+
   it('fails closed when CLIENT_URL is missing in production', () => {
     const environment = productionEnvironment();
     delete (environment as Partial<typeof environment>).CLIENT_URL;
