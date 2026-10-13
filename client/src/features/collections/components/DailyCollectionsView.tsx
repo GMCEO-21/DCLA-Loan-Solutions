@@ -30,6 +30,7 @@ import type {
 } from "../types";
 import {
   evaluateMemberStatus,
+  getOperationalCollectionStatus,
   hasActiveLoan,
   hasLoanAmount,
 } from "../utils/memberStatus";
@@ -229,10 +230,13 @@ export default function DailyCollectionsView({
           }
           const collection = (collectionMap.get(member.id) ||
             null) as Collection | null;
-          const status = evaluateMemberStatus(member, {
-            collection,
-            referenceDate: group.collectionDate,
-          });
+          const status = getOperationalCollectionStatus(
+            member,
+            evaluateMemberStatus(member, {
+              collection,
+              referenceDate: group.collectionDate,
+            }),
+          );
           if (status.label === "PAID") {
             acc.paid += 1;
           } else if (status.label === "PARTIAL") {
@@ -313,9 +317,32 @@ export default function DailyCollectionsView({
 
             const typedMembers =
               membersWithCollections as MemberWithLoansExtended[];
-            const exportableMembers = typedMembers.filter(
-              (member) => hasActiveLoan(member) && hasLoanAmount(member),
+            const pendingMemberIds = new Set(
+              pendingPaymentMemberIdsMap[getGroupKey(group)] ?? [],
             );
+            const exportableMembers = typedMembers
+              .filter(
+                (member) => hasActiveLoan(member) && hasLoanAmount(member),
+              )
+              .map((member) => {
+                const current = evaluateMemberStatus(member, {
+                  collection: member.collection,
+                  referenceDate: group.collectionDate,
+                });
+                const status = pendingMemberIds.has(member.id)
+                  ? {
+                      ...current,
+                      label: "PENDING" as const,
+                      color: "warning" as const,
+                    }
+                  : getOperationalCollectionStatus(member, current);
+                return {
+                  ...member,
+                  __computed: {
+                    status: { label: status.label, color: status.color },
+                  },
+                };
+              });
 
             return {
               group,
@@ -352,8 +379,9 @@ export default function DailyCollectionsView({
         "_",
       )}`;
 
-      const { exportAllCollectionsToExcel } =
-        await import("../utils/exportUtils");
+      const { exportAllCollectionsToExcel } = await import(
+        "../utils/exportUtils"
+      );
       await exportAllCollectionsToExcel(validBundles, fileName);
 
       // Show success feedback

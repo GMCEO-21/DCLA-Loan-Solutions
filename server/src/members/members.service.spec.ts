@@ -1,11 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MembersService } from './members.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { Between, DataSource, In } from 'typeorm';
 import { Member } from './entities/member.entity';
 import { Center } from '../centers/entities/center.entity';
 import { Loan } from '../loans/loan.entity';
-import { Repayment } from '../repayments/repayment.entity';
+import {
+  Repayment,
+  RepaymentOperationType,
+  RepaymentStatus,
+} from '../repayments/repayment.entity';
 import { Savings } from '../savings/savings.entity';
 import { Collection } from '../collections/entities/collection.entity';
 import { ConflictException, NotFoundException } from '@nestjs/common';
@@ -19,14 +23,17 @@ describe('MembersService', () => {
   };
   let memberRepository: { find: jest.Mock; createQueryBuilder: jest.Mock };
   let loanRepository: { createQueryBuilder: jest.Mock };
+  let scheduleFind: jest.Mock;
 
   beforeEach(async () => {
+    scheduleFind = jest.fn().mockResolvedValue([]);
     manager = {
       findOne: jest.fn().mockResolvedValue({ id: 'member-1' } as Member),
       exists: jest.fn().mockResolvedValue(false),
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const dataSource = {
+      getRepository: jest.fn().mockReturnValue({ find: scheduleFind }),
       transaction: jest.fn(
         (callback: (entityManager: typeof manager) => unknown) =>
           callback(manager),
@@ -168,6 +175,115 @@ describe('MembersService', () => {
     });
     expect(result[0].loans[0]).not.toHaveProperty('borrower');
     expect(result[1].loans).toHaveLength(1);
+  });
+
+  it.each([
+    ['2026-10-17', '2026-10-17', '2026-10-23', true],
+    ['2026-10-20', '2026-10-17', '2026-10-23', true],
+    ['2026-10-23', '2026-10-17', '2026-10-23', true],
+    ['2026-10-24', '2026-10-24', '2026-10-30', false],
+  ])(
+    'projects the selected week for %s without changing member population or amounts',
+    async (selectedDate, weekStart, weekEnd, expectedPaid) => {
+      const member = { id: 'member-1', center: { id: 'center-1' } } as Member;
+      const loan = {
+        id: 'loan-1',
+        borrower: member,
+        status: 'active',
+        principalAmount: 3000,
+        balance: 1500,
+        totalAmount: 3500,
+        weeklyPaymentAmount: 1500,
+      } as Loan;
+      memberRepository.find.mockResolvedValue([member]);
+      loanRepository.createQueryBuilder.mockReturnValue({
+        innerJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([loan]),
+      });
+      scheduleFind.mockResolvedValue([
+        {
+          loanId: loan.id,
+          amountDue: 1500,
+          allocations: expectedPaid
+            ? [
+                {
+                  amountApplied: 1500,
+                  repayment: {
+                    status: RepaymentStatus.APPROVED,
+                    operationType: RepaymentOperationType.PAYMENT,
+                  },
+                },
+              ]
+            : [],
+        },
+      ]);
+
+      const result = await service.getCenterMembers('center-1', selectedDate);
+
+      expect(scheduleFind).toHaveBeenCalledWith({
+        where: {
+          loanId: In([loan.id]),
+          dueDate: Between(weekStart, weekEnd),
+        },
+        relations: ['allocations', 'allocations.repayment'],
+      });
+      expect(result.map(({ id }) => id)).toEqual(['member-1']);
+      expect(result[0]).toMatchObject({
+        totalLoanAmount: 3000,
+        totalBalance: 1500,
+        weeklyPaid: expectedPaid,
+        weeklyHasAllocation: expectedPaid,
+      });
+    },
+  );
+
+  it('recognizes advance-funded next-week allocations but ignores pending and reversal rows', async () => {
+    const member = { id: 'member-1', center: { id: 'center-1' } } as Member;
+    const loan = { id: 'loan-1', borrower: member, status: 'active' } as Loan;
+    memberRepository.find.mockResolvedValue([member]);
+    loanRepository.createQueryBuilder.mockReturnValue({
+      innerJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([loan]),
+    });
+    scheduleFind.mockResolvedValue([
+      {
+        loanId: loan.id,
+        amountDue: 1500,
+        allocations: [
+          {
+            amountApplied: 1500,
+            repayment: {
+              status: RepaymentStatus.APPROVED,
+              operationType: RepaymentOperationType.PAYMENT,
+              paymentDate: '2026-10-17',
+            },
+          },
+          {
+            amountApplied: 500,
+            repayment: {
+              status: RepaymentStatus.PENDING,
+              operationType: RepaymentOperationType.PAYMENT,
+            },
+          },
+          {
+            amountApplied: 500,
+            repayment: {
+              status: RepaymentStatus.APPROVED,
+              operationType: RepaymentOperationType.REVERSAL,
+            },
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.getCenterMembers('center-1', '2026-10-24');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].weeklyPaid).toBe(true);
   });
 
   it('filters before paging and uses the member id as a stable tie-breaker', async () => {

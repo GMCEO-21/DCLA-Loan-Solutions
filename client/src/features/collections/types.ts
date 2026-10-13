@@ -33,6 +33,8 @@ export interface MemberWithLoans extends Member {
   netCashReleasedForDate?: number;
   numberOfPayments?: number;
   collection?: Collection;
+  weeklyPaid?: boolean | null;
+  weeklyHasAllocation?: boolean | null;
 }
 
 export interface Center {

@@ -53,7 +53,7 @@ const normalizeReferenceDate = (reference?: string | Date | null): Date => {
 
 const computePaymentInfo = (
   member: MemberWithLoans,
-  reference: Date
+  reference: Date,
 ): {
   weeklyDue: number;
   shortfall: number;
@@ -63,14 +63,14 @@ const computePaymentInfo = (
 } => {
   const loans = Array.isArray(member.loans) ? (member.loans as LoanLike[]) : [];
   const activeLoans = loans.filter(
-    (loan) => (loan?.status || "").toLowerCase() === "active"
+    (loan) => (loan?.status || "").toLowerCase() === "active",
   );
   const relevantLoans =
     activeLoans.length > 0 ? activeLoans : loans.length > 0 ? [loans[0]] : [];
 
   const fallbackWeekly = relevantLoans.reduce(
     (sum, loan) => sum + Number(loan?.weeklyPaymentAmount || 0),
-    0
+    0,
   );
 
   let expectedTotal = 0;
@@ -84,8 +84,7 @@ const computePaymentInfo = (
     totalPaid += amountPaid;
 
     const termWeeks = Number(loan?.termWeeks || 0);
-    const startRaw =
-      loan?.loanCreatedDate ?? loan?.createdAt ?? loan?.dueDate;
+    const startRaw = loan?.loanCreatedDate ?? loan?.createdAt ?? loan?.dueDate;
     if (!startRaw) return;
 
     const startDate = new Date(startRaw);
@@ -103,10 +102,7 @@ const computePaymentInfo = (
 
   const weeklyDue =
     Number(member.weeklyPaymentAmount || 0) || fallbackWeekly || 0;
-  const shortfall = Math.max(
-    0,
-    Number((expectedTotal - totalPaid).toFixed(2))
-  );
+  const shortfall = Math.max(0, Number((expectedTotal - totalPaid).toFixed(2)));
   const weeksCovered = weeklyDue > 0 ? Math.floor(totalPaid / weeklyDue) : 0;
 
   return {
@@ -120,14 +116,13 @@ const computePaymentInfo = (
 
 const deriveReceived = (collection?: CollectionLike | null): number => {
   if (!collection) return 0;
-  const value =
-    collection.amountReceived ?? collection.paymentReceived ?? 0;
+  const value = collection.amountReceived ?? collection.paymentReceived ?? 0;
   return Number(value) || 0;
 };
 
 const deriveDue = (
   collection: Collection | null | undefined,
-  weeklyDue: number
+  weeklyDue: number,
 ): number => {
   const collectionAmount = Number(collection?.amount ?? 0);
   if (collectionAmount > EPSILON) {
@@ -146,14 +141,14 @@ export const hasActiveLoan = (member: MemberWithLoans): boolean => {
   return (
     Array.isArray(member.loans) &&
     (member.loans as LoanLike[]).some(
-      (loan) => (loan?.status || "").toLowerCase() === "active"
+      (loan) => (loan?.status || "").toLowerCase() === "active",
     )
   );
 };
 
 export const hasLoanAmount = (member: MemberWithLoans): boolean => {
   const aggregateAmount = Number(
-    member.totalLoanAmount ?? member.overallAmount ?? 0
+    member.totalLoanAmount ?? member.overallAmount ?? 0,
   );
   if (aggregateAmount > EPSILON) {
     return true;
@@ -168,7 +163,7 @@ export const hasLoanAmount = (member: MemberWithLoans): boolean => {
 
 export const evaluateMemberStatus = (
   member: MemberWithLoans,
-  options: EvaluateOptions = {}
+  options: EvaluateOptions = {},
 ): MemberStatusResult => {
   const reference = normalizeReferenceDate(options.referenceDate);
   const paymentInfo = computePaymentInfo(member, reference);
@@ -205,7 +200,11 @@ export const evaluateMemberStatus = (
     // Treat "no expected due yet and no payments received" as unpaid
     if (paymentInfo.expectedTotal <= EPSILON && received <= EPSILON) {
       label = hasActive ? "UNPAID" : "PAID";
-    } else if (due > EPSILON && received > EPSILON && received < due - EPSILON) {
+    } else if (
+      due > EPSILON &&
+      received > EPSILON &&
+      received < due - EPSILON
+    ) {
       label = "PARTIAL";
     } else {
       label = "PAID";
@@ -226,4 +225,19 @@ export const evaluateMemberStatus = (
     shortfall: paymentInfo.shortfall,
     totalPaid: paymentInfo.totalPaid,
   };
+};
+
+export const getOperationalCollectionStatus = (
+  member: MemberWithLoans,
+  current: MemberStatusResult,
+): MemberStatusResult => {
+  if (current.label === "PENDING") return current;
+  if (member.weeklyPaid === true) {
+    return { ...current, label: "PAID", color: "success" };
+  }
+  if (member.weeklyPaid === false && current.label === "PAID") {
+    const label = member.weeklyHasAllocation ? "PARTIAL" : "UNPAID";
+    return { ...current, label, color: mapLabelToColor(label) };
+  }
+  return current;
 };

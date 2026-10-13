@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Between, In, Repository, DataSource } from 'typeorm';
 import { Member } from './entities/member.entity';
 import { Center } from '../centers/entities/center.entity';
 import { Loan } from '../loans/loan.entity';
@@ -14,6 +14,12 @@ import { Collection } from '../collections/entities/collection.entity';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { FindMembersQueryDto } from './dto/find-members-query.dto';
+import { LoanRepaymentSchedule } from '../repayments/entities/loan-repayment-schedule.entity';
+import {
+  RepaymentOperationType,
+  RepaymentStatus,
+} from '../repayments/repayment.entity';
+import { addDaysToDateOnly, parseDateOnly } from '../common/date-only';
 
 @Injectable()
 export class MembersService {
@@ -180,6 +186,64 @@ export class MembersService {
     }
 
     const loans = await loanQuery.getMany();
+    const weeklyFundingByMember = new Map<
+      string,
+      { paid: boolean; hasAllocation: boolean }
+    >();
+    const activeLoans = loans.filter((loan) => loan.status === 'active');
+    if (date && activeLoans.length > 0) {
+      const selectedDate = parseDateOnly(date);
+      const weekStart = addDaysToDateOnly(
+        selectedDate,
+        -((selectedDate.weekdayIndex + 1) % 7),
+      );
+      const weekEnd = addDaysToDateOnly(parseDateOnly(weekStart), 6);
+      const schedules = await this.dataSource
+        .getRepository(LoanRepaymentSchedule)
+        .find({
+          where: {
+            loanId: In(activeLoans.map((loan) => loan.id)),
+            dueDate: Between(weekStart, weekEnd),
+          },
+          relations: ['allocations', 'allocations.repayment'],
+        });
+      const memberIdByLoanId = new Map(
+        activeLoans.map((loan) => [loan.id, loan.borrower.id]),
+      );
+      const fundingByMember = new Map<
+        string,
+        { dueCents: number; appliedCents: number }
+      >();
+
+      for (const schedule of schedules) {
+        const memberId = memberIdByLoanId.get(schedule.loanId);
+        if (!memberId) continue;
+        const funding = fundingByMember.get(memberId) ?? {
+          dueCents: 0,
+          appliedCents: 0,
+        };
+        funding.dueCents += Math.round(Number(schedule.amountDue) * 100);
+        funding.appliedCents += (schedule.allocations ?? []).reduce(
+          (sum, allocation) =>
+            allocation.repayment?.status === RepaymentStatus.APPROVED &&
+            allocation.repayment.operationType ===
+              RepaymentOperationType.PAYMENT
+              ? sum + Math.round(Number(allocation.amountApplied) * 100)
+              : sum,
+          0,
+        );
+        fundingByMember.set(memberId, funding);
+      }
+
+      for (const [memberId, funding] of fundingByMember) {
+        if (funding.dueCents > 0) {
+          weeklyFundingByMember.set(memberId, {
+            paid: funding.appliedCents >= funding.dueCents,
+            hasAllocation: funding.appliedCents > 0,
+          });
+        }
+      }
+    }
     const loansByMember = new Map<string, Omit<Loan, 'borrower'>[]>();
 
     for (const loan of loans) {
@@ -236,6 +300,13 @@ export class MembersService {
         totalTermWeeks,
         totalSavings,
         netCashReleased,
+        ...(date
+          ? {
+              weeklyPaid: weeklyFundingByMember.get(member.id)?.paid ?? null,
+              weeklyHasAllocation:
+                weeklyFundingByMember.get(member.id)?.hasAllocation ?? null,
+            }
+          : {}),
       };
     });
   }

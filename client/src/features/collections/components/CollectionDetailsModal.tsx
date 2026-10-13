@@ -44,6 +44,7 @@ import type { Repayment } from "@features/repayments/types";
 import { useAuthStore } from "@features/auth/authStore";
 import {
   evaluateMemberStatus,
+  getOperationalCollectionStatus,
   hasActiveLoan,
   hasLoanAmount,
   type MemberStatusResult,
@@ -432,6 +433,10 @@ export default function CollectionDetailsModal({
     const eligibleMembers = sorted.filter(shouldExportMember);
     return eligibleMembers.map((member) => {
       const statusInfo = getMemberStatusInfo(member);
+      const operationalStatus = getOperationalCollectionStatus(
+        member,
+        statusInfo,
+      );
       return {
         ...member,
         __computed: {
@@ -448,8 +453,8 @@ export default function CollectionDetailsModal({
             weeksCovered: statusInfo.weeksCovered,
           },
           status: {
-            label: statusInfo.label,
-            color: statusInfo.color,
+            label: operationalStatus.label,
+            color: operationalStatus.color,
           },
         },
       };
@@ -542,8 +547,9 @@ export default function CollectionDetailsModal({
         return sum + Number(metrics?.due || 0);
       }, 0);
 
-      const { exportCollectorPdf } =
-        await import("../utils/exportCollectorPdf");
+      const { exportCollectorPdf } = await import(
+        "../utils/exportCollectorPdf"
+      );
       await exportCollectorPdf({
         centerName: collectionGroup.centerName,
         collectionDate: collectionGroup.collectionDate,
@@ -592,14 +598,16 @@ export default function CollectionDetailsModal({
     (
       member: MemberWithLoansExtended,
     ): "default" | "success" | "warning" | "error" => {
-      return getMemberStatusInfo(member).color;
+      return getOperationalCollectionStatus(member, getMemberStatusInfo(member))
+        .color;
     },
     [getMemberStatusInfo],
   );
 
   const getStatusLabel = useCallback(
     (member: MemberWithLoansExtended): string => {
-      return getMemberStatusInfo(member).label;
+      return getOperationalCollectionStatus(member, getMemberStatusInfo(member))
+        .label;
     },
     [getMemberStatusInfo],
   );
@@ -616,7 +624,10 @@ export default function CollectionDetailsModal({
         acc.totalOverallAmount += Number(member.overallAmount || 0);
         acc.totalRemainingBalance += Number(member.totalBalance || 0);
 
-        const statusInfo = getMemberStatusInfo(member);
+        const statusInfo = getOperationalCollectionStatus(
+          member,
+          getMemberStatusInfo(member),
+        );
         if (statusInfo.label === "PAID") {
           acc.paidCount += 1;
         } else if (statusInfo.label === "PARTIAL") {
