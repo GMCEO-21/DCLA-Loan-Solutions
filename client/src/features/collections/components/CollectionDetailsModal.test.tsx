@@ -157,4 +157,61 @@ describe("CollectionDetailsModal", () => {
     expect(exportedMembers[0].__computed.collectionMetrics.received).toBe(0);
     expect(exportedMembers[0].totalBalance).toBe(3000);
   });
+
+  it("preserves the legacy status when the weekly projection is missing", async () => {
+    getCenterMembers.mockResolvedValue([
+      {
+        id: "member-2",
+        firstName: "Ana",
+        lastName: "Reyes",
+        loans: [
+          {
+            id: "loan-2",
+            status: "active",
+            amount: 3000,
+            amountPaid: 500,
+            weeklyPaymentAmount: 1500,
+            loanCreatedDate: "2026-10-17",
+          },
+        ],
+        totalLoanAmount: 3000,
+        totalBalance: 2500,
+        weeklyPaymentAmount: 1500,
+        weeklyPaid: null,
+      },
+    ]);
+    getCenterCollectionsByDate.mockResolvedValue([
+      {
+        id: "collection-2",
+        memberId: "member-2",
+        centerId: "center-1",
+        collectionDate: "2026-10-20",
+        amount: 1500,
+        paymentReceived: 0,
+      },
+    ]);
+
+    render(
+      <ThemeProvider theme={theme}>
+        <CollectionDetailsModal
+          open
+          collectionGroup={{
+            centerId: "center-1",
+            centerName: "North Center",
+            collectionDay: "Tuesday",
+            collectionDate: "2026-10-20",
+            totalAmount: 1500,
+            totalReceived: 0,
+            totalMembers: 1,
+            pendingCollections: 0,
+            collections: [],
+          }}
+          onClose={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByText("member-2:PARTIAL:0")).toBeInTheDocument();
+    expect(screen.queryByText(/Unavailable/i)).not.toBeInTheDocument();
+  });
 });

@@ -235,7 +235,7 @@ export const getOperationalCollectionStatus = (
   if (member.weeklyPaid === true) {
     return { ...current, label: "PAID", color: "success" };
   }
-  if (member.weeklyPaid === false && current.label === "PAID") {
+  if (member.weeklyPaid === false) {
     const label = member.weeklyHasAllocation ? "PARTIAL" : "UNPAID";
     return { ...current, label, color: mapLabelToColor(label) };
   }

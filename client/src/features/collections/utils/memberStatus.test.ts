@@ -9,6 +9,7 @@ const member = (
   weeklyPaid: boolean | null,
   amountPaid: number,
   paymentReceived: number,
+  weeklyHasAllocation: boolean | null = null,
 ): MemberWithLoans =>
   ({
     id: "member-1",
@@ -24,6 +25,7 @@ const member = (
     ],
     weeklyPaymentAmount: 1500,
     weeklyPaid,
+    weeklyHasAllocation,
     collection: { amount: 1500, paymentReceived },
   }) as unknown as MemberWithLoans;
 
@@ -42,22 +44,35 @@ describe("operational weekly Paid status", () => {
     expect(operational.shortfall).toBe(current.shortfall);
   });
 
-  it("does not derive the weekly Paid override from cumulative or exact-date payments", () => {
-    for (const [amountPaid, paymentReceived] of [
-      [0, 0],
-      [10000, 5000],
-    ]) {
-      const currentMember = member(true, amountPaid, paymentReceived);
-      const current = evaluateMemberStatus(currentMember, {
-        referenceDate: "2026-10-20",
-      });
-      expect(getOperationalCollectionStatus(currentMember, current).label).toBe(
-        "PAID",
-      );
-    }
+  it("marks an existing unfunded next-week schedule Unpaid despite cumulative payments", () => {
+    const currentMember = member(false, 1500, 0, false);
+    const current = {
+      ...evaluateMemberStatus(currentMember, {
+        referenceDate: "2026-10-24",
+      }),
+      label: "PAID" as const,
+      color: "success" as const,
+    };
+
+    expect(
+      getOperationalCollectionStatus(currentMember, current),
+    ).toMatchObject({ label: "UNPAID", color: "error" });
   });
 
-  it("preserves Pending precedence and existing non-funded labels", () => {
+  it("marks an existing partially funded schedule Partial", () => {
+    const currentMember = member(false, 1500, 0, true);
+    const current = {
+      ...evaluateMemberStatus(currentMember),
+      label: "PAID" as const,
+      color: "success" as const,
+    };
+
+    expect(
+      getOperationalCollectionStatus(currentMember, current),
+    ).toMatchObject({ label: "PARTIAL", color: "warning" });
+  });
+
+  it("preserves Pending precedence", () => {
     const currentMember = member(true, 0, 0);
     const pending = {
       ...evaluateMemberStatus(currentMember),
@@ -67,34 +82,33 @@ describe("operational weekly Paid status", () => {
     expect(getOperationalCollectionStatus(currentMember, pending)).toBe(
       pending,
     );
+  });
 
-    for (const label of ["PARTIAL", "UNPAID"] as const) {
-      const unfundedMember = member(false, 0, 0);
+  it("preserves every existing status when the weekly schedule is missing", () => {
+    const currentMember = member(null, 1500, 0);
+    for (const label of ["PAID", "PARTIAL", "UNPAID"] as const) {
       const current = {
-        ...evaluateMemberStatus(unfundedMember),
+        ...evaluateMemberStatus(currentMember),
         label,
+        color:
+          label === "PAID"
+            ? ("success" as const)
+            : label === "PARTIAL"
+              ? ("warning" as const)
+              : ("error" as const),
       };
-      expect(getOperationalCollectionStatus(unfundedMember, current)).toBe(
+      expect(getOperationalCollectionStatus(currentMember, current)).toBe(
         current,
       );
     }
   });
 
-  it("does not carry a previous week's Paid label into an unfunded Saturday", () => {
-    const nextWeek = member(false, 1500, 0);
-    nextWeek.weeklyHasAllocation = false;
-    const previousPaid = {
-      ...evaluateMemberStatus(nextWeek),
-      label: "PAID" as const,
-      color: "success" as const,
-    };
-    expect(getOperationalCollectionStatus(nextWeek, previousPaid).label).toBe(
-      "UNPAID",
-    );
+  it("does not expose an Unavailable operational status", () => {
+    const currentMember = member(null, 0, 0);
+    const current = evaluateMemberStatus(currentMember);
 
-    nextWeek.weeklyHasAllocation = true;
-    expect(getOperationalCollectionStatus(nextWeek, previousPaid).label).toBe(
-      "PARTIAL",
+    expect(getOperationalCollectionStatus(currentMember, current).label).toBe(
+      "UNPAID",
     );
   });
 });

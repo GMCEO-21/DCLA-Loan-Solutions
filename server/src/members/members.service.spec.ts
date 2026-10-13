@@ -179,7 +179,11 @@ describe('MembersService', () => {
 
   it.each([
     ['2026-10-17', '2026-10-17', '2026-10-23', true],
+    ['2026-10-18', '2026-10-17', '2026-10-23', true],
+    ['2026-10-19', '2026-10-17', '2026-10-23', true],
     ['2026-10-20', '2026-10-17', '2026-10-23', true],
+    ['2026-10-21', '2026-10-17', '2026-10-23', true],
+    ['2026-10-22', '2026-10-17', '2026-10-23', true],
     ['2026-10-23', '2026-10-17', '2026-10-23', true],
     ['2026-10-24', '2026-10-24', '2026-10-30', false],
   ])(
@@ -238,6 +242,38 @@ describe('MembersService', () => {
       });
     },
   );
+
+  it('preserves member population when the selected week has no schedule', async () => {
+    const members = [
+      { id: 'member-1', center: { id: 'center-1' } },
+      { id: 'member-2', center: { id: 'center-1' } },
+    ] as Member[];
+    const loans = members.map(
+      (member, index) =>
+        ({
+          id: `loan-${index + 1}`,
+          borrower: member,
+          status: 'active',
+          principalAmount: 3000,
+          balance: 3000,
+          weeklyPaymentAmount: 1500,
+        }) as Loan,
+    );
+    memberRepository.find.mockResolvedValue(members);
+    loanRepository.createQueryBuilder.mockReturnValue({
+      innerJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(loans),
+    });
+    scheduleFind.mockResolvedValue([]);
+
+    const result = await service.getCenterMembers('center-1', '2026-10-20');
+
+    expect(result.map(({ id }) => id)).toEqual(['member-1', 'member-2']);
+    expect(result).toHaveLength(2);
+    expect(result.map(({ weeklyPaid }) => weeklyPaid)).toEqual([null, null]);
+  });
 
   it('recognizes advance-funded next-week allocations but ignores pending and reversal rows', async () => {
     const member = { id: 'member-1', center: { id: 'center-1' } } as Member;
