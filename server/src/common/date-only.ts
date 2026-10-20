@@ -61,6 +61,21 @@ export function addDaysToDateOnly(date: DateOnlyParts, days: number): string {
   return `${year}-${month}-${day}`;
 }
 
+export function getSaturdayFridayWeekRange(value: string): {
+  weekStart: string;
+  weekEnd: string;
+} {
+  const selected = parseDateOnly(value);
+  const weekStart = addDaysToDateOnly(
+    selected,
+    -((selected.weekdayIndex + 1) % 7),
+  );
+  return {
+    weekStart,
+    weekEnd: addDaysToDateOnly(parseDateOnly(weekStart), 6),
+  };
+}
+
 export function differenceInDateOnlyDays(start: string, end: string): number {
   const startDate = parseDateOnly(start);
   const endDate = parseDateOnly(end);

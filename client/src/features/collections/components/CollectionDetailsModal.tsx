@@ -124,10 +124,6 @@ export default function CollectionDetailsModal({
   const [pendingPaymentMemberIds, setPendingPaymentMemberIds] = useState<
     Set<string>
   >(new Set());
-  const [totalCenterMembers, setTotalCenterMembers] = useState(
-    collectionGroup?.totalMembers ?? 0,
-  );
-
   // Dialog states
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [reloanDialogOpen, setReloanDialogOpen] = useState(false);
@@ -179,7 +175,6 @@ export default function CollectionDetailsModal({
           collectionGroup.collectionDate,
           signal,
         );
-        setTotalCenterMembers(centerMembers.length);
         let refreshedCollections: Collection[] =
           collectionGroup.collections ?? [];
         try {
@@ -291,7 +286,6 @@ export default function CollectionDetailsModal({
           advancePaymentAmount: Number(col.advancePaymentAmount ?? 0),
         })),
       );
-      setTotalCenterMembers(collectionGroup.totalMembers ?? 0);
     }
   }, [collectionGroup]);
 
@@ -547,9 +541,8 @@ export default function CollectionDetailsModal({
         return sum + Number(metrics?.due || 0);
       }, 0);
 
-      const { exportCollectorPdf } = await import(
-        "../utils/exportCollectorPdf"
-      );
+      const { exportCollectorPdf } =
+        await import("../utils/exportCollectorPdf");
       await exportCollectorPdf({
         centerName: collectionGroup.centerName,
         collectionDate: collectionGroup.collectionDate,
@@ -652,6 +645,11 @@ export default function CollectionDetailsModal({
     return totals;
   }, [collectionGroup, members, getMemberStatusInfo]);
 
+  const operationalMemberCount = useMemo(
+    () => members.filter(hasActiveLoan).length,
+    [members],
+  );
+
   const formatCurrency = useCallback((amount: number): string => {
     return `₱${amount.toLocaleString()}`;
   }, []);
@@ -666,25 +664,22 @@ export default function CollectionDetailsModal({
       0,
     );
     const pendingCollections = Math.max(
-      totalCenterMembers - latestCollections.length,
+      members.length - latestCollections.length,
       0,
     );
 
     return {
-      totalMembers: totalCenterMembers,
+      totalMembers: operationalMemberCount,
       totalAmount,
       totalReceived,
       pendingCollections,
     };
-  }, [latestCollections, totalCenterMembers]);
+  }, [latestCollections, members.length, operationalMemberCount]);
 
   // Filtered + sorted members for table rendering
   const displayedMembers = useMemo(() => {
     const query = memberSearch.trim().toLowerCase();
-    const base = members.filter(
-      (m) =>
-        Array.isArray(m.loans) && m.loans.some((l) => l.status === "active"),
-    );
+    const base = members.filter(hasActiveLoan);
     const filtered = query
       ? base.filter((m) => {
           const name = `${m.firstName || ""} ${m.middleName || ""} ${
@@ -772,7 +767,7 @@ export default function CollectionDetailsModal({
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                 <People sx={{ fontSize: 16 }} />
                 <Typography variant="body2">
-                  {collectionGroup.totalMembers} Members
+                  {operationalMemberCount} Members
                 </Typography>
               </Box>
             </Box>

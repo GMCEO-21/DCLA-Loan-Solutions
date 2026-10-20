@@ -81,6 +81,11 @@ const statusChipStyles: Record<string, { bg: string; color: string }> = {
   PENDING: { bg: "#e0f2fe", color: "#0369a1" },
 };
 
+const loanConditionLabels = {
+  past_due: "Past Due",
+  past_maturity: "Past Maturity",
+} as const;
+
 const getActiveLoans = (member: MemberWithLoansRow): MemberLoan[] =>
   (member.loans ?? []).filter(
     (loan) => (loan.status || "").toLowerCase() === "active",
@@ -297,13 +302,42 @@ export function MembersTable({
                     width: "100%",
                   }}
                 >
-                  <Box>
-                    <Typography
-                      variant="body1"
-                      sx={{ fontWeight: 700, color: "text.primary" }}
+                  <Box sx={{ minWidth: 0 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                        flexWrap: "wrap",
+                      }}
                     >
-                      {member.firstName} {member.lastName}
-                    </Typography>
+                      <Typography
+                        variant="body1"
+                        sx={{ fontWeight: 700, color: "text.primary" }}
+                      >
+                        {member.firstName} {member.lastName}
+                      </Typography>
+                      {(member.loanCondition?.status === "past_due" ||
+                        member.loanCondition?.status === "past_maturity") && (
+                        <Chip
+                          label={
+                            loanConditionLabels[member.loanCondition.status]
+                          }
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            height: 22,
+                            borderColor: "warning.main",
+                            backgroundColor: (muiTheme) =>
+                              alpha(muiTheme.palette.warning.main, 0.08),
+                            color: "warning.dark",
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            "& .MuiChip-label": { px: 0.875 },
+                          }}
+                        />
+                      )}
+                    </Box>
                     <Typography variant="body2" color="text.secondary">
                       {member.contactNumber}
                     </Typography>

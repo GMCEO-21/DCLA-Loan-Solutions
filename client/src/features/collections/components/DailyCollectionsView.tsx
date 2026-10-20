@@ -35,7 +35,15 @@ import {
   hasLoanAmount,
 } from "../utils/memberStatus";
 import { withNetReleaseForDate } from "../utils/netRelease";
-import { formatCollectionDatasetDate } from "../utils/date";
+import {
+  formatCollectionDatasetDate,
+  getCollectionWeekRange,
+} from "../utils/date";
+import {
+  combineWeeklyFinancialSummaries,
+  getWeeklyFinancialSummary,
+} from "../utils/weeklySummary";
+import type { WeeklyFinancialSummary } from "../utils/weeklySummary";
 
 interface DailyCollectionsViewProps {
   data: DailyCollectionGroup[];
@@ -51,6 +59,59 @@ type MemberWithLoansExtended = MemberWithLoans & {
 
 const getGroupKey = (group: DailyCollectionGroup) =>
   `${group.centerId}::${group.collectionDate}`;
+
+function LoanConditionSummary({
+  members,
+}: {
+  members: MemberWithLoansExtended[];
+}) {
+  const counts = members.filter(hasActiveLoan).reduce(
+    (result, member) => {
+      if (member.loanCondition?.status === "past_due") {
+        result.pastDue += 1;
+      } else if (member.loanCondition?.status === "past_maturity") {
+        result.pastMaturity += 1;
+      }
+      return result;
+    },
+    { pastDue: 0, pastMaturity: 0 },
+  );
+  const labels = [
+    counts.pastDue > 0 ? `${counts.pastDue} Past Due` : null,
+    counts.pastMaturity > 0 ? `${counts.pastMaturity} Past Maturity` : null,
+  ].filter((label): label is string => label !== null);
+
+  if (labels.length === 0) return null;
+
+  return (
+    <Typography
+      variant="caption"
+      color="text.secondary"
+      display="block"
+      sx={{ mt: 1 }}
+    >
+      {labels.join(" · ")}
+    </Typography>
+  );
+}
+
+function WeeklyFinancialNotes({
+  summary,
+}: {
+  summary: WeeklyFinancialSummary | null;
+}) {
+  if (!summary || summary.incompleteScheduleLoanCount === 0) return null;
+
+  return (
+    <Box sx={{ mt: 1 }}>
+      <Typography variant="caption" color="warning.main" display="block">
+        {summary.incompleteScheduleLoanCount === 1
+          ? "1 Weekly Schedule Issue"
+          : `${summary.incompleteScheduleLoanCount} Weekly Schedule Issues`}
+      </Typography>
+    </Box>
+  );
+}
 
 export default function DailyCollectionsView({
   data,
@@ -77,6 +138,15 @@ export default function DailyCollectionsView({
   };
 
   const formattedDatasetDate = formatCollectionDatasetDate(datasetDate);
+  const { weekStart, weekEnd } = getCollectionWeekRange(datasetDate);
+  const formatWeeklyCurrency = (
+    summary: WeeklyFinancialSummary | null,
+    amount: number | undefined,
+  ) => {
+    if (!summary) return "—";
+    if (!summary.available) return "Not available";
+    return amount === undefined ? "Not available" : formatCurrency(amount);
+  };
 
   // Fetch members for each center so cards use the same basis as the modal
   useEffect(() => {
@@ -185,26 +255,16 @@ export default function DailyCollectionsView({
     [centerMembersMap],
   );
 
-  const sumOverallAmount = (group: DailyCollectionGroup) => {
-    const members = getMembersFor(group.centerId);
-    return members.reduce((sum, m) => sum + (Number(m.overallAmount) || 0), 0);
-  };
-
-  const sumTotalReceived = (group: DailyCollectionGroup) => {
-    return group.collections.reduce(
-      (sum, c) => sum + (Number(c.paymentReceived) || 0),
-      0,
-    );
-  };
-
-  const sumRemainingBalance = (group: DailyCollectionGroup) => {
-    const members = getMembersFor(group.centerId);
-    const totalBalance = members.reduce(
-      (sum, m) => sum + (Number(m.totalBalance) || 0),
-      0,
-    );
-    return totalBalance - sumTotalReceived(group);
-  };
+  const getGroupWeeklySummary = useCallback(
+    (group: DailyCollectionGroup) => {
+      const members = centerMembersMap[group.centerId];
+      if (!members || (members.length === 0 && group.totalMembers > 0)) {
+        return null;
+      }
+      return getWeeklyFinancialSummary(members);
+    },
+    [centerMembersMap],
+  );
 
   const getStatusCounts = useCallback(
     (group: DailyCollectionGroup) => {
@@ -260,12 +320,15 @@ export default function DailyCollectionsView({
     getStatusCounts(group).pending;
   const getUnpaidCount = (group: DailyCollectionGroup) =>
     getStatusCounts(group).unpaid;
+  const getOperationalMemberCount = (group: DailyCollectionGroup) => {
+    const counts = getStatusCounts(group);
+    return counts.paid + counts.partial + counts.pending + counts.unpaid;
+  };
 
   // End-of-Day totals across all groups (for the selected date)
   const eod = (() => {
-    const totalReceived = data.reduce((sum, g) => sum + sumTotalReceived(g), 0);
-    const totalRemaining = data.reduce(
-      (sum, g) => sum + Math.max(0, sumRemainingBalance(g)),
+    const totalReceived = data.reduce(
+      (sum, group) => sum + (Number(group.totalReceived) || 0),
       0,
     );
     const totalReleased = data.reduce((sum, g) => {
@@ -279,8 +342,12 @@ export default function DailyCollectionsView({
         )
       );
     }, 0);
-    return { totalReceived, totalRemaining, totalReleased };
+    return { totalReceived, totalReleased };
   })();
+
+  const pageWeeklySummary = combineWeeklyFinancialSummaries(
+    data.map(getGroupWeeklySummary),
+  );
 
   const handleExportAllCollections = async () => {
     if (data.length === 0) return;
@@ -372,17 +439,18 @@ export default function DailyCollectionsView({
       }
 
       // Generate the multi-sheet Excel file
-      const collectionDate =
-        data[0]?.collectionDate || new Date().toISOString().split("T")[0];
-      const fileName = `Daily_Collections_Report_${collectionDate.replace(
-        /-/g,
-        "_",
-      )}`;
+      const fileName = isDaily
+        ? "Daily_Collections_Report"
+        : "Collections_By_Date_Report";
 
       const { exportAllCollectionsToExcel } = await import(
         "../utils/exportUtils"
       );
-      await exportAllCollectionsToExcel(validBundles, fileName);
+      await exportAllCollectionsToExcel(
+        validBundles,
+        fileName,
+        isDaily ? "daily" : "by-date",
+      );
 
       // Show success feedback
       console.log(
@@ -541,7 +609,9 @@ export default function DailyCollectionsView({
       >
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-            Collection Summary for {formattedDatasetDate}
+            {isDaily
+              ? `Collection Summary for ${formattedDatasetDate}`
+              : `Collection Week: ${formatCollectionDatasetDate(weekStart)} – ${formatCollectionDatasetDate(weekEnd)}`}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {isDaily
@@ -570,10 +640,15 @@ export default function DailyCollectionsView({
               }}
             >
               <Typography variant="caption" color="text.secondary">
-                Total Collected
+                {isDaily ? "Collected Today" : "Weekly Due"}
               </Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                {formatCurrency(eod.totalReceived)}
+                {isDaily
+                  ? formatCurrency(eod.totalReceived)
+                  : formatWeeklyCurrency(
+                      pageWeeklySummary,
+                      pageWeeklySummary?.due,
+                    )}
               </Typography>
             </Box>
             <Box
@@ -586,10 +661,18 @@ export default function DailyCollectionsView({
               }}
             >
               <Typography variant="caption" color="text.secondary">
-                Unpaid (Remaining)
+                {isDaily ? "Weekly Remaining" : "Applied to Week"}
               </Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                {formatCurrency(eod.totalRemaining)}
+                {isDaily
+                  ? formatWeeklyCurrency(
+                      pageWeeklySummary,
+                      pageWeeklySummary?.remaining,
+                    )
+                  : formatWeeklyCurrency(
+                      pageWeeklySummary,
+                      pageWeeklySummary?.applied,
+                    )}
               </Typography>
             </Box>
             <Box
@@ -602,13 +685,19 @@ export default function DailyCollectionsView({
               }}
             >
               <Typography variant="caption" color="text.secondary">
-                Released
+                {isDaily ? "Released Today" : "Weekly Remaining"}
               </Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                {formatCurrency(eod.totalReleased)}
+                {isDaily
+                  ? formatCurrency(eod.totalReleased)
+                  : formatWeeklyCurrency(
+                      pageWeeklySummary,
+                      pageWeeklySummary?.remaining,
+                    )}
               </Typography>
             </Box>
           </Box>
+          <WeeklyFinancialNotes summary={pageWeeklySummary} />
         </Box>
         <Button
           variant="outlined"
@@ -700,22 +789,38 @@ export default function DailyCollectionsView({
               </Grid>
               <Grid item xs={12} md={4}>
                 <Box sx={{ textAlign: { xs: "left", md: "right" } }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Weekly Due
+                  </Typography>
                   <Typography
                     variant="h5"
                     sx={{ fontWeight: 700, mb: 0.5, color: "primary.main" }}
                   >
-                    {formatCurrency(sumOverallAmount(group))}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Received:{" "}
-                    {formatCurrency(
-                      sumOverallAmount(group) - sumRemainingBalance(group),
+                    {formatWeeklyCurrency(
+                      getGroupWeeklySummary(group),
+                      getGroupWeeklySummary(group)?.due,
                     )}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Remaining:{" "}
-                    {formatCurrency(Math.max(0, sumRemainingBalance(group)))}
+                    Applied to Week:{" "}
+                    {formatWeeklyCurrency(
+                      getGroupWeeklySummary(group),
+                      getGroupWeeklySummary(group)?.applied,
+                    )}
                   </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Weekly Remaining:{" "}
+                    {formatWeeklyCurrency(
+                      getGroupWeeklySummary(group),
+                      getGroupWeeklySummary(group)?.remaining,
+                    )}
+                  </Typography>
+                  <LoanConditionSummary
+                    members={getMembersFor(group.centerId)}
+                  />
+                  <WeeklyFinancialNotes
+                    summary={getGroupWeeklySummary(group)}
+                  />
                 </Box>
               </Grid>
             </Grid>
@@ -727,7 +832,7 @@ export default function DailyCollectionsView({
               <Grid item xs={6} md={2.4}>
                 <CollectionStatsCard
                   title="Total Members"
-                  value={group.totalMembers}
+                  value={getOperationalMemberCount(group)}
                   icon={<People />}
                   color="primary"
                 />

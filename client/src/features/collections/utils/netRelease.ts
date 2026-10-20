@@ -1,7 +1,5 @@
 import type { MemberWithLoans } from "../types";
 
-const NET_RELEASE_WINDOW_DAYS = 7;
-
 type LoanLike = MemberWithLoans["loans"][number] & {
   status?: string;
   loanCreatedDate?: string | Date;
@@ -11,24 +9,26 @@ type LoanLike = MemberWithLoans["loans"][number] & {
   net_release?: number | null;
 };
 
-const normalizeDate = (value?: string | Date | null): Date | null => {
+const normalizeDateOnly = (value?: string | Date | null): string | null => {
   if (!value) return null;
-  const date =
-    value instanceof Date
-      ? new Date(value.getTime())
-      : new Date(`${value}`.replace(/Z?$/, "Z"));
+
+  if (typeof value === "string") {
+    const dateOnly = value.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+    if (dateOnly) return dateOnly;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
     return null;
   }
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return date.toISOString().slice(0, 10);
 };
 
 export const computeNetReleaseForDate = (
   member: MemberWithLoans,
-  referenceDate?: string | Date | null
+  referenceDate?: string | Date | null,
 ): number => {
-  const reference = normalizeDate(referenceDate);
+  const reference = normalizeDateOnly(referenceDate);
   if (!reference) return 0;
 
   const loans = Array.isArray(member.loans) ? (member.loans as LoanLike[]) : [];
@@ -39,27 +39,18 @@ export const computeNetReleaseForDate = (
       return sum;
     }
 
-    const releaseDate =
-      normalizeDate(
-        loan?.loanCreatedDate ?? loan?.createdAt ?? loan?.releaseDate ?? null
-      ) ?? null;
+    const releaseDate = normalizeDateOnly(
+      loan?.loanCreatedDate ?? loan?.createdAt ?? loan?.releaseDate ?? null,
+    );
     if (!releaseDate) {
       return sum;
     }
 
-    if (reference.getTime() < releaseDate.getTime()) {
-      return sum; // not yet released for this collection
-    }
-
-    const windowEnd = new Date(releaseDate.getTime());
-    windowEnd.setDate(windowEnd.getDate() + (NET_RELEASE_WINDOW_DAYS - 1));
-    if (reference.getTime() > windowEnd.getTime()) {
+    if (reference !== releaseDate) {
       return sum;
     }
 
-    const netValue = Number(
-      loan?.netCashReleased ?? loan?.net_release ?? 0
-    );
+    const netValue = Number(loan?.netCashReleased ?? loan?.net_release ?? 0);
     if (!Number.isFinite(netValue) || netValue <= 0) {
       return sum;
     }
@@ -70,11 +61,11 @@ export const computeNetReleaseForDate = (
 
 export const withNetReleaseForDate = <T extends MemberWithLoans>(
   member: T,
-  referenceDate?: string | Date | null
+  referenceDate?: string | Date | null,
 ): T & { netCashReleasedForDate: number; netCashReleased: number } => {
   const netCashReleasedForDate = computeNetReleaseForDate(
     member,
-    referenceDate
+    referenceDate,
   );
   return {
     ...member,

@@ -35,6 +35,23 @@ export interface MemberWithLoans extends Member {
   collection?: Collection;
   weeklyPaid?: boolean | null;
   weeklyHasAllocation?: boolean | null;
+  weeklyAmountDue?: number | null;
+  weeklyAmountApplied?: number | null;
+  weeklyFinancial?: {
+    kind:
+      | "scheduled_week"
+      | "post_maturity_no_weekly_obligation"
+      | "pre_first_due_no_weekly_obligation"
+      | "historical_funding_unavailable"
+      | "missing_schedule_unexpectedly";
+    amountDue: number | null;
+    amountApplied: number | null;
+    postMaturityLoanCount: number;
+    incompleteScheduleLoanCount: number;
+  };
+  loanCondition?: {
+    status: "normal" | "past_due" | "past_maturity" | "indeterminate";
+  };
 }
 
 export interface Center {

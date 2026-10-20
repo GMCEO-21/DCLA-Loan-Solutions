@@ -65,4 +65,66 @@ describe("MembersTable actions layout", () => {
       screen.getByRole("button", { name: /Maria Santos/ }),
     ).toBeInTheDocument();
   });
+
+  it.each([
+    ["past_due", "Past Due"],
+    ["past_maturity", "Past Maturity"],
+  ] as const)(
+    "renders the %s condition beside the member name",
+    (status, label) => {
+      render(
+        <ThemeProvider theme={theme}>
+          <MembersTable
+            members={[{ ...member, loanCondition: { status } }]}
+            getStatusColor={() => "error"}
+            getStatusLabel={() => "UNPAID"}
+            getCollectionMetrics={() => ({ received: 0, due: 500 })}
+            getPaymentInfo={() => ({
+              weeklyDue: 500,
+              shortfall: 500,
+              totalPaid: 0,
+              weeksCovered: 0,
+            })}
+            formatCurrency={(amount) => `PHP ${amount}`}
+            onOpenPaymentDialog={vi.fn()}
+            onOpenReloanDialog={vi.fn()}
+            canReloan
+          />
+        </ThemeProvider>,
+      );
+
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getByText("UNPAID")).toBeInTheDocument();
+    },
+  );
+
+  it.each(["normal", "indeterminate"] as const)(
+    "does not render a badge for %s",
+    (status) => {
+      render(
+        <ThemeProvider theme={theme}>
+          <MembersTable
+            members={[{ ...member, loanCondition: { status } }]}
+            getStatusColor={() => "error"}
+            getStatusLabel={() => "UNPAID"}
+            getCollectionMetrics={() => ({ received: 0, due: 500 })}
+            getPaymentInfo={() => ({
+              weeklyDue: 500,
+              shortfall: 500,
+              totalPaid: 0,
+              weeksCovered: 0,
+            })}
+            formatCurrency={(amount) => `PHP ${amount}`}
+            onOpenPaymentDialog={vi.fn()}
+            onOpenReloanDialog={vi.fn()}
+            canReloan
+          />
+        </ThemeProvider>,
+      );
+
+      expect(screen.queryByText("Past Due")).not.toBeInTheDocument();
+      expect(screen.queryByText("Past Maturity")).not.toBeInTheDocument();
+      expect(screen.getByText("UNPAID")).toBeInTheDocument();
+    },
+  );
 });

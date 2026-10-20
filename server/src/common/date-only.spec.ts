@@ -1,5 +1,6 @@
 import {
   differenceInDateOnlyDays,
+  getSaturdayFridayWeekRange,
   getWeeklyPenaltyAssessmentDate,
   laterDateOnly,
   parseDateOnly,
@@ -28,6 +29,13 @@ describe('parseDateOnly', () => {
 });
 
 describe('date-only financial helpers', () => {
+  it('resolves the containing Saturday-Friday collection week', () => {
+    expect(getSaturdayFridayWeekRange('2026-10-15')).toEqual({
+      weekStart: '2026-10-10',
+      weekEnd: '2026-10-16',
+    });
+  });
+
   it('calculates calendar-day differences without timezone conversion', () => {
     expect(differenceInDateOnlyDays('2026-09-13', '2026-09-14')).toBe(1);
     expect(differenceInDateOnlyDays('2026-09-14', '2026-09-13')).toBe(-1);

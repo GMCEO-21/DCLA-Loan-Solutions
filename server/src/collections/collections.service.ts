@@ -18,6 +18,8 @@ import {
   RepaymentOperationType,
   RepaymentStatus,
 } from '../repayments/repayment.entity';
+import { SavingsEventType } from '../savings/savings.entity';
+import { LoanChargeLedgerEventType } from '../loans/entities/loan-charge-ledger.entity';
 import { addDaysToDateOnly, parseDateOnly } from '../common/date-only';
 import { getFinancialBusinessDate } from '../common/financial-business-date';
 
@@ -75,35 +77,8 @@ export class CollectionsService {
   }
 
   private async calculateTotalReceivedForDate(centerId: string, date: string) {
-    const start = new Date(date);
-    const end = new Date(date);
-    end.setDate(end.getDate() + 1);
-
-    const raw = await this.repaymentRepo
-      .createQueryBuilder('repayment')
-      .select(
-        `COALESCE(SUM(CASE
-          WHEN repayment.operationType = :reversalType THEN -repayment.amount
-          ELSE repayment.amount
-        END), 0)`,
-        'total',
-      )
-      .leftJoin('repayment.center', 'center')
-      .where('center.id = :centerId', { centerId })
-      .andWhere('repayment.status = :status', {
-        status: RepaymentStatus.APPROVED,
-      })
-      .setParameter('reversalType', RepaymentOperationType.REVERSAL)
-      .andWhere(
-        'repayment.createdAt >= :start AND repayment.createdAt < :end',
-        {
-          start: start.toISOString(),
-          end: end.toISOString(),
-        },
-      )
-      .getRawOne<{ total: string }>();
-
-    return Number(raw?.total ?? 0);
+    const totals = await this.getTotalReceivedByCenterForDate(date);
+    return totals.get(centerId) ?? 0;
   }
 
   private async getMemberCountsByCenter(centerIds: string[]) {
@@ -121,36 +96,72 @@ export class CollectionsService {
   }
 
   private async getTotalReceivedByCenterForDate(date: string) {
-    const start = new Date(date);
-    const end = new Date(date);
-    end.setDate(end.getDate() + 1);
+    // Cash plus the actual savings debit is the payment value. Contractual and
+    // charge allocations partition that value and must not be added again.
+    const rows = await this.repaymentRepo.query<
+      Array<{
+        centerId: string;
+        status: RepaymentStatus;
+        cashAmount: string;
+        savingsAmount: string;
+        isReversed: boolean;
+      }>
+    >(
+      `SELECT
+         payment."centerId" AS "centerId",
+         payment.status AS status,
+         payment.amount AS "cashAmount",
+         COALESCE(
+           (
+             SELECT ABS(SUM(savings.amount))
+             FROM savings
+             WHERE savings."referenceId" = payment.id
+               AND savings."eventType" = $3
+           ),
+           (
+             COALESCE((
+               SELECT SUM(allocation."savingsPortion")
+               FROM loan_repayment_allocation allocation
+               WHERE allocation."repaymentId" = payment.id
+             ), 0)
+             + COALESCE((
+               SELECT SUM(charge."savingsPortion")
+               FROM loan_charge_ledger charge
+               WHERE charge."sourceRepaymentId" = payment.id
+                 AND charge."eventType" = $6
+             ), 0)
+           ),
+           0
+         ) AS "savingsAmount",
+         EXISTS (
+           SELECT 1
+           FROM repayment reversal
+           WHERE reversal."relatedRepaymentId" = payment.id
+             AND reversal."operationType" = $4
+             AND reversal.status = $5
+         ) AS "isReversed"
+       FROM repayment payment
+       WHERE payment."operationType" = $1
+         AND COALESCE(payment."paymentDate", payment."collectionDate") = $2::date`,
+      [
+        RepaymentOperationType.PAYMENT,
+        date,
+        SavingsEventType.REPAYMENT_DEBIT,
+        RepaymentOperationType.REVERSAL,
+        RepaymentStatus.APPROVED,
+        LoanChargeLedgerEventType.PAYMENT,
+      ],
+    );
 
-    const rows = await this.repaymentRepo
-      .createQueryBuilder('repayment')
-      .select('center.id', 'centerId')
-      .addSelect(
-        `COALESCE(SUM(CASE
-          WHEN repayment.operationType = :reversalType THEN -repayment.amount
-          ELSE repayment.amount
-        END), 0)`,
-        'total',
-      )
-      .leftJoin('repayment.center', 'center')
-      .where('repayment.status = :status', {
-        status: RepaymentStatus.APPROVED,
-      })
-      .andWhere(
-        'repayment.createdAt >= :start AND repayment.createdAt < :end',
-        {
-          start: start.toISOString(),
-          end: end.toISOString(),
-        },
-      )
-      .setParameter('reversalType', RepaymentOperationType.REVERSAL)
-      .groupBy('center.id')
-      .getRawMany<{ centerId: string; total: string }>();
+    const totals = new Map<string, number>();
+    for (const row of rows) {
+      if (row.status !== RepaymentStatus.APPROVED || row.isReversed) continue;
 
-    return new Map(rows.map((row) => [row.centerId, Number(row.total)]));
+      const paymentValue =
+        Number(row.cashAmount || 0) + Number(row.savingsAmount || 0);
+      totals.set(row.centerId, (totals.get(row.centerId) ?? 0) + paymentValue);
+    }
+    return totals;
   }
 
   async create(createCollectionDto: CreateCollectionDto) {

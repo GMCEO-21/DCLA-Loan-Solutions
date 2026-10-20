@@ -214,4 +214,70 @@ describe("CollectionDetailsModal", () => {
     expect(await screen.findByText("member-2:PARTIAL:0")).toBeInTheDocument();
     expect(screen.queryByText(/Unavailable/i)).not.toBeInTheDocument();
   });
+
+  it("shows the operational member count and keeps it stable while searching", async () => {
+    const activeMembers = Array.from({ length: 11 }, (_, index) => ({
+      id: index < 2 ? `match-${index}` : `other-${index}`,
+      firstName: index < 2 ? "SearchMatch" : "Different",
+      lastName: `Member ${index}`,
+      loans: [{ id: `loan-${index}`, status: "active" }],
+      weeklyPaid: false,
+      weeklyHasAllocation: false,
+    }));
+    getCenterMembers.mockResolvedValue([
+      ...activeMembers,
+      { id: "no-loan", firstName: "No", lastName: "Loan", loans: [] },
+      {
+        id: "closed-only",
+        firstName: "Closed",
+        lastName: "Only",
+        loans: [{ id: "closed-loan", status: "closed" }],
+      },
+      {
+        id: "inactive-only",
+        firstName: "Inactive",
+        lastName: "Only",
+        loans: [{ id: "inactive-loan", status: "inactive" }],
+      },
+    ]);
+
+    render(
+      <ThemeProvider theme={theme}>
+        <CollectionDetailsModal
+          open
+          collectionGroup={{
+            centerId: "center-1",
+            centerName: "North Center",
+            collectionDay: "Tuesday",
+            collectionDate: "2026-10-20",
+            totalAmount: 0,
+            totalReceived: 0,
+            totalMembers: 48,
+            pendingCollections: 0,
+            collections: [],
+          }}
+          onClose={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByText("11 Members")).toBeInTheDocument();
+    expect(screen.getByText(/^match-0:/)).toBeInTheDocument();
+    expect(screen.getByText(/^other-2:/)).toBeInTheDocument();
+    expect(screen.queryByText(/^no-loan:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^closed-only:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^inactive-only:/)).not.toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search member by name or contact"),
+      { target: { value: "SearchMatch" } },
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText(/^other-2:/)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText(/^match-0:/)).toBeInTheDocument();
+    expect(screen.getByText(/^match-1:/)).toBeInTheDocument();
+    expect(screen.getByText("11 Members")).toBeInTheDocument();
+  });
 });
