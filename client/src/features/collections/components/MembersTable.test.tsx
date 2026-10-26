@@ -30,7 +30,7 @@ const member = {
 } as unknown as MemberWithLoans;
 
 describe("MembersTable actions layout", () => {
-  it("keeps payment, reloan, and expansion controls on one row", () => {
+  it("aligns payment, savings, reloan, and expansion controls", () => {
     render(
       <ThemeProvider theme={theme}>
         <MembersTable
@@ -46,20 +46,24 @@ describe("MembersTable actions layout", () => {
           })}
           formatCurrency={(amount) => `PHP ${amount}`}
           onOpenPaymentDialog={vi.fn()}
+          onOpenSavingsDialog={vi.fn()}
           onOpenReloanDialog={vi.fn()}
+          canManageSavings
           canReloan
         />
       </ThemeProvider>,
     );
 
     const payment = screen.getByRole("button", { name: "Payment" });
+    expect(
+      screen.getByRole("button", { name: "Savings" }),
+    ).toBeInTheDocument();
     const reloan = screen.getByRole("button", { name: "Process Reloan" });
     const actions = payment.parentElement?.parentElement;
 
     expect(reloan).toBeInTheDocument();
     expect(actions).not.toBeNull();
     expect(getComputedStyle(actions as HTMLElement).display).toBe("flex");
-    expect(getComputedStyle(actions as HTMLElement).flexWrap).toBe("nowrap");
     expect(getComputedStyle(actions as HTMLElement).alignItems).toBe("center");
     expect(
       screen.getByRole("button", { name: /Maria Santos/ }),
@@ -87,7 +91,9 @@ describe("MembersTable actions layout", () => {
             })}
             formatCurrency={(amount) => `PHP ${amount}`}
             onOpenPaymentDialog={vi.fn()}
+            onOpenSavingsDialog={vi.fn()}
             onOpenReloanDialog={vi.fn()}
+            canManageSavings
             canReloan
           />
         </ThemeProvider>,
@@ -116,7 +122,9 @@ describe("MembersTable actions layout", () => {
             })}
             formatCurrency={(amount) => `PHP ${amount}`}
             onOpenPaymentDialog={vi.fn()}
+            onOpenSavingsDialog={vi.fn()}
             onOpenReloanDialog={vi.fn()}
+            canManageSavings
             canReloan
           />
         </ThemeProvider>,
@@ -127,4 +135,64 @@ describe("MembersTable actions layout", () => {
       expect(screen.getByText("UNPAID")).toBeInTheDocument();
     },
   );
+
+  it("opens savings posting when the role is allowed", () => {
+    const onOpenSavingsDialog = vi.fn();
+
+    render(
+      <ThemeProvider theme={theme}>
+        <MembersTable
+          members={[member]}
+          getStatusColor={() => "error"}
+          getStatusLabel={() => "UNPAID"}
+          getCollectionMetrics={() => ({ received: 0, due: 500 })}
+          getPaymentInfo={() => ({
+            weeklyDue: 500,
+            shortfall: 500,
+            totalPaid: 0,
+            weeksCovered: 0,
+          })}
+          formatCurrency={(amount) => `PHP ${amount}`}
+          onOpenPaymentDialog={vi.fn()}
+          onOpenSavingsDialog={onOpenSavingsDialog}
+          onOpenReloanDialog={vi.fn()}
+          canManageSavings
+          canReloan={false}
+        />
+      </ThemeProvider>,
+    );
+
+    screen.getByRole("button", { name: "Savings" }).click();
+
+    expect(onOpenSavingsDialog).toHaveBeenCalledWith(member);
+  });
+
+  it("hides savings posting when the role is not allowed", () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <MembersTable
+          members={[member]}
+          getStatusColor={() => "error"}
+          getStatusLabel={() => "UNPAID"}
+          getCollectionMetrics={() => ({ received: 0, due: 500 })}
+          getPaymentInfo={() => ({
+            weeklyDue: 500,
+            shortfall: 500,
+            totalPaid: 0,
+            weeksCovered: 0,
+          })}
+          formatCurrency={(amount) => `PHP ${amount}`}
+          onOpenPaymentDialog={vi.fn()}
+          onOpenSavingsDialog={vi.fn()}
+          onOpenReloanDialog={vi.fn()}
+          canManageSavings={false}
+          canReloan={false}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Savings" }),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -15,6 +15,7 @@ import KeyboardArrowDown from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowRight from "@mui/icons-material/KeyboardArrowRight";
 import Payment from "@mui/icons-material/Payment";
 import People from "@mui/icons-material/People";
+import Savings from "@mui/icons-material/Savings";
 import { useEffect, useState } from "react";
 import type { MemberWithLoans } from "../types";
 
@@ -53,7 +54,9 @@ interface MembersTableProps {
   };
   formatCurrency: (amount: number) => string;
   onOpenPaymentDialog: (member: MemberWithLoansRow) => void;
+  onOpenSavingsDialog: (member: MemberWithLoansRow) => void;
   onOpenReloanDialog: (member: MemberWithLoansRow) => void;
+  canManageSavings: boolean;
   canReloan: boolean;
 }
 
@@ -92,7 +95,7 @@ const getActiveLoans = (member: MemberWithLoansRow): MemberLoan[] =>
   );
 
 const summaryDataGridColumns =
-  "minmax(220px, 1fr) minmax(140px, 1fr) minmax(110px, 0.75fr) minmax(260px, 280px)";
+  "minmax(220px, 1fr) minmax(140px, 1fr) minmax(110px, 0.75fr) minmax(260px, 360px)";
 
 const summaryGridColumns = `${summaryDataGridColumns} 24px`;
 
@@ -104,7 +107,9 @@ export function MembersTable({
   getPaymentInfo,
   formatCurrency,
   onOpenPaymentDialog,
+  onOpenSavingsDialog,
   onOpenReloanDialog,
+  canManageSavings,
   canReloan,
 }: MembersTableProps) {
   const [expandedId, setExpandedId] = useState<string | false>(false);
@@ -221,6 +226,7 @@ export function MembersTable({
             ? Number(activeLoan?.balance ?? 0)
             : Number(member.totalBalance ?? 0);
           const canPostPayment = hasSingleActiveLoan && balance > 0;
+          const canPostSavings = hasSingleActiveLoan;
           const paymentTooltip =
             activeLoans.length > 1
               ? "Multiple active loans found. Resolve loan records before posting payment."
@@ -408,7 +414,7 @@ export function MembersTable({
                       justifyContent: { xs: "flex-start", md: "flex-end" },
                       alignItems: "center",
                       gap: 1,
-                      flexWrap: "nowrap",
+                      flexWrap: { xs: "wrap", sm: "nowrap" },
                       whiteSpace: "nowrap",
                     }}
                     onClick={(event) => event.stopPropagation()}
@@ -438,6 +444,39 @@ export function MembersTable({
                         </Button>
                       </span>
                     </Tooltip>
+                    {canManageSavings && (
+                      <Tooltip
+                        title={
+                          activeLoans.length > 1
+                            ? "Multiple active loans found. Resolve loan records before posting savings."
+                            : "Post Savings"
+                        }
+                      >
+                        <span>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<Savings />}
+                            onClick={() => onOpenSavingsDialog(member)}
+                            disabled={!canPostSavings}
+                            sx={{
+                              minWidth: 98,
+                              minHeight: 44,
+                              borderRadius: 2,
+                              fontWeight: 700,
+                              borderColor: "#fde68a",
+                              color: "#b45309",
+                              "&:hover": {
+                                borderColor: "#f59e0b",
+                                backgroundColor: alpha("#f59e0b", 0.08),
+                              },
+                            }}
+                          >
+                            Savings
+                          </Button>
+                        </span>
+                      </Tooltip>
+                    )}
                     {canReloan && (
                       <Tooltip title="Process Reloan">
                         <Button

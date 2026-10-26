@@ -55,6 +55,8 @@ import SendSmsConfirmationDialog from "@features/notifications/components/SendSm
 import { getApiErrorMessage } from "@utils/apiError";
 import type { SmsEligibilityItem } from "@features/notifications/types";
 import { shouldOfferRepaymentSms } from "@features/notifications/eligibility";
+import { canManageSavings as roleCanManageSavings } from "@features/auth/access";
+import SavingsDepositDialog from "@features/savings/components/SavingsDepositDialog";
 
 type MemberLoan = MemberWithLoans["loans"][number] & {
   weeksPaid?: number;
@@ -106,6 +108,7 @@ export default function CollectionDetailsModal({
 }: CollectionDetailsModalProps) {
   const role = useAuthStore((state) => state.user?.role ?? "");
   const canReloan = role === "loan processor" || role === "admin";
+  const canManageSavings = roleCanManageSavings(role);
 
   // State management
   const [members, setMembers] = useState<MemberWithLoansExtended[]>([]);
@@ -126,6 +129,7 @@ export default function CollectionDetailsModal({
   >(new Set());
   // Dialog states
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [savingsDialogOpen, setSavingsDialogOpen] = useState(false);
   const [reloanDialogOpen, setReloanDialogOpen] = useState(false);
   const [selectedMember, setSelectedMember] =
     useState<MemberWithLoansExtended | null>(null);
@@ -301,6 +305,7 @@ export default function CollectionDetailsModal({
       setError(null);
       setSupportingDataError(null);
       setSelectedMember(null);
+      setSavingsDialogOpen(false);
     }
   }, [open, collectionGroup, fetchCenterMembers]);
 
@@ -320,6 +325,14 @@ export default function CollectionDetailsModal({
     [],
   );
 
+  const handleOpenSavingsDialog = useCallback(
+    (member: MemberWithLoansExtended) => {
+      setSelectedMember(member);
+      setSavingsDialogOpen(true);
+    },
+    [],
+  );
+
   const handleClosePaymentDialog = useCallback(() => {
     setPaymentDialogOpen(false);
     setSelectedMember(null);
@@ -327,6 +340,11 @@ export default function CollectionDetailsModal({
 
   const handleCloseReloanDialog = useCallback(() => {
     setReloanDialogOpen(false);
+    setSelectedMember(null);
+  }, []);
+
+  const handleCloseSavingsDialog = useCallback(() => {
+    setSavingsDialogOpen(false);
     setSelectedMember(null);
   }, []);
 
@@ -374,6 +392,17 @@ export default function CollectionDetailsModal({
     });
     handleCloseReloanDialog();
   }, [fetchCenterMembers, handleCloseReloanDialog, onDataChanged]);
+
+  const handleSavingsSuccess = useCallback(async () => {
+    await fetchCenterMembers();
+    onDataChanged?.();
+    setToast({
+      open: true,
+      message: "Savings transaction recorded successfully.",
+      severity: "success",
+    });
+    handleCloseSavingsDialog();
+  }, [fetchCenterMembers, handleCloseSavingsDialog, onDataChanged]);
 
   const referenceDate = useMemo(() => {
     if (!collectionGroup?.collectionDate) return null;
@@ -933,7 +962,9 @@ export default function CollectionDetailsModal({
                 getPaymentInfo={getMemberPaymentInfo}
                 formatCurrency={formatCurrency}
                 onOpenPaymentDialog={handleOpenPaymentDialog}
+                onOpenSavingsDialog={handleOpenSavingsDialog}
                 onOpenReloanDialog={handleOpenReloanDialog}
+                canManageSavings={canManageSavings}
                 canReloan={canReloan}
               />
             </>
@@ -991,6 +1022,15 @@ export default function CollectionDetailsModal({
         onSuccess={handleReloanSuccess}
         formatCurrency={formatCurrency}
       />
+      {canManageSavings && savingsDialogOpen && (
+        <SavingsDepositDialog
+          open
+          member={selectedMember}
+          onClose={handleCloseSavingsDialog}
+          onSuccess={handleSavingsSuccess}
+          formatCurrency={formatCurrency}
+        />
+      )}
       <SendSmsConfirmationDialog
         open={smsDialogOpen}
         eventType="repayment_posted"
