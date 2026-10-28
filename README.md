@@ -1,87 +1,68 @@
-# DCLA Loan Solutions - Lending Management System
+﻿# DCLA Loan Solutions - Lending Management System
 
-A comprehensive web application for managing loan applications, built with modern technologies and following best practices.
+A loan and collections management system with a NestJS + PostgreSQL backend and a React + MUI frontend.
 
-## 🚀 Tech Stack
+For up-to-date design and flow documentation:
+
+- `ARCHITECTURE.md` (full system architecture, module boundaries, role model, finance safety rules)
+- `COLLECTIONS_FLOW.md` (focused walkthrough of payment posting, manager approvals, reversals, and collection summaries)
+
+## Tech Stack
 
 ### Backend
 
-- **Node.js** with Express.js
-- **PostgreSQL** database
-- **JWT** authentication
-- **MVC** architecture pattern
-- **bcryptjs** for password hashing
-- **express-validator** for input validation
+- NestJS (TypeScript)
+- PostgreSQL
+- TypeORM
+- JWT auth with refresh tokens
+- Validation via `class-validator` and `ValidationPipe`
 
 ### Frontend
 
-- **React 19** with TypeScript
-- **Material-UI (MUI)** for UI components
-- **React Router** for navigation
-- **React Query** for state management
-- **Vite** for build tooling
-- **Feature-based** folder structure
+- React + TypeScript
+- Vite
+- Material-UI (MUI)
+- React Router
+- Axios
+- Zustand for auth state
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-DCLA Loan Solutions/
-├── server/                 # Backend API
-│   ├── config/            # Database configuration
-│   ├── controllers/       # MVC Controllers
-│   ├── middleware/        # Authentication & validation
-│   ├── models/           # MVC Models
-│   ├── routes/           # API Routes
-│   ├── scripts/          # Database migrations & seeding
-│   └── index.js          # Server entry point
-├── client/                # Frontend React app
-│   ├── src/
-│   │   ├── components/   # Reusable UI components
-│   │   ├── contexts/     # React contexts
-│   │   ├── features/     # Feature-based modules
-│   │   │   ├── auth/     # Authentication feature
-│   │   │   └── loans/    # Loans management feature
-│   │   ├── pages/        # Page components
-│   │   └── App.tsx       # Main app component
-│   └── package.json
-└── README.md
+DCLA-Loan-Solutions/
++-- server/                 # NestJS API
+¦   +-- src/
+¦   ¦   +-- auth/           # Auth, JWT, guards
+¦   ¦   +-- centers/        # Centers feature
+¦   ¦   +-- collections/    # Collections feature
+¦   ¦   +-- loans/          # Loans feature
+¦   ¦   +-- members/        # Members feature
+¦   ¦   +-- portfolio/      # Portfolio reporting
+¦   ¦   +-- repayments/     # Repayment schedules & allocations
+¦   ¦   +-- roles/          # Roles
+¦   ¦   +-- savings/        # Savings
+¦   ¦   +-- transactions/   # Transactions history
+¦   ¦   +-- main.ts         # App bootstrap
+¦   +-- package.json
++-- client/                 # React app
+¦   +-- src/
+¦   ¦   +-- components/     # Shared UI
+¦   ¦   +-- features/       # Feature modules (auth, member, collections, etc.)
+¦   ¦   +-- routes/         # App routes
+¦   ¦   +-- utils/          # Axios client, helpers
+¦   ¦   +-- main.tsx        # App entry
+¦   +-- package.json
++-- README.md
 ```
 
-## 🛠️ Setup Instructions
+## Setup
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
+- Node.js 18+
+- PostgreSQL 12+
 
-### 1. Database Setup
-
-1. Create a PostgreSQL database:
-
-```sql
-CREATE DATABASE dcla_loans;
-```
-
-2. Copy the environment file and configure it:
-
-```bash
-cd server
-cp env.example .env
-```
-
-3. Update the `.env` file with your database credentials:
-
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=dcla_loans
-DB_USER=your_username
-DB_PASSWORD=your_password
-JWT_SECRET=your-super-secret-jwt-key
-```
-
-### 2. Backend Setup
+### Backend (NestJS)
 
 1. Install dependencies:
 
@@ -90,27 +71,28 @@ cd server
 npm install
 ```
 
-2. Run database migrations:
+2. Configure `.env` in `server/`:
 
-```bash
-npm run db:migrate
+```env
+PORT=3000
+CLIENT_URL=http://localhost:5173
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+JWT_SECRET=your-secret
+JWT_REFRESH_SECRET=your-refresh-secret
+TYPEORM_SYNC=false
+TYPEORM_RUN_MIGRATIONS=true
 ```
 
-3. Seed the database with sample data:
+3. Run migrations and start:
 
 ```bash
-npm run db:seed
+npm run migration:run
+npm run start:dev
 ```
 
-4. Start the development server:
+The API runs at `http://localhost:3000/api`.
 
-```bash
-npm run dev
-```
-
-The backend will be running on `http://localhost:5000`
-
-### 3. Frontend Setup
+### Frontend (React)
 
 1. Install dependencies:
 
@@ -119,147 +101,46 @@ cd client
 npm install
 ```
 
-2. Create environment file:
-
-```bash
-cp .env.example .env
-```
-
-3. Update the `.env` file:
+2. Configure `.env` in `client/`:
 
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=http://localhost:3000/api
 ```
 
-4. Start the development server:
+3. Start:
 
 ```bash
 npm run dev
 ```
 
-The frontend will be running on `http://localhost:5173`
+The web app runs at `http://localhost:5173`.
 
-## 📊 Sample Data
+## Key Flows
 
-After running the seed script, you'll have access to:
+- Auth: `/api/auth/login` and `/api/auth/refresh` return access + refresh tokens.
+- Global auth guards protect API routes; only `@Public` endpoints bypass JWT.
+- Collections: server computes and persists daily collection data; client derives
+  per-member status (paid/partial/unpaid) and export reports.
 
-### Users
+## Scripts
 
-- **Admin**: `admin@dcla.com` / `admin123`
-- **User 1**: `john.doe@example.com` / `password123`
-- **User 2**: `jane.smith@example.com` / `password123`
-- **User 3**: `mike.johnson@example.com` / `password123`
-
-### Sample Loans
-
-- 1 approved personal loan
-- 1 pending business loan
-- 1 rejected auto loan
-- 1 pending mortgage loan
-
-## 🔐 Authentication
-
-The system uses JWT tokens for authentication. Users can:
-
-- Register new accounts
-- Login with email/password
-- Update their profile
-- Change passwords
-- Access role-based features
-
-## 🏦 Loan Management Features
-
-### For Users
-
-- Submit loan applications
-- View their loan history
-- Update pending applications
-- Track application status
-
-### For Admins
-
-- View all loan applications
-- Approve/reject applications
-- Add notes to decisions
-- View loan statistics
-- Filter loans by status/type
-
-## 📋 API Endpoints
-
-### Authentication
-
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - User login
-- `GET /api/auth/profile` - Get user profile
-- `PUT /api/auth/profile` - Update profile
-- `PUT /api/auth/change-password` - Change password
-
-### Loans
-
-- `POST /api/loans` - Create loan application
-- `GET /api/loans/my-loans` - Get user's loans
-- `GET /api/loans/:id` - Get specific loan
-- `PUT /api/loans/:id` - Update loan
-- `GET /api/loans` - Get all loans (admin)
-- `POST /api/loans/:id/approve` - Approve loan (admin)
-- `POST /api/loans/:id/reject` - Reject loan (admin)
-- `GET /api/loans/stats/overview` - Get loan statistics (admin)
-
-## 🎨 UI Features
-
-- **Responsive Design** - Works on desktop and mobile
-- **Material Design** - Modern, clean interface
-- **Dark/Light Theme** - Customizable appearance
-- **Data Tables** - Sortable and filterable loan data
-- **Form Validation** - Real-time input validation
-- **Loading States** - Smooth user experience
-- **Error Handling** - User-friendly error messages
-
-## 🔧 Development
-
-### Backend Scripts
+### Server
 
 ```bash
-npm run dev          # Start development server
-npm run db:migrate   # Run database migrations
-npm run db:seed      # Seed database with sample data
+npm run start:dev
+npm run migration:run
+npm run test
 ```
 
-### Frontend Scripts
+### Client
 
 ```bash
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run preview      # Preview production build
-npm run lint         # Run ESLint
+npm run dev
+npm run build
+npm run lint
 ```
 
-## 🚀 Deployment
+## Notes
 
-### Backend Deployment
-
-1. Set up environment variables for production
-2. Run database migrations
-3. Build and start the Node.js application
-
-### Frontend Deployment
-
-1. Update API URL in environment variables
-2. Build the application: `npm run build`
-3. Deploy the `dist` folder to your hosting service
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📝 License
-
-This project is licensed under the MIT License.
-
-## 🆘 Support
-
-For support and questions, please contact the development team or create an issue in the repository.
+- The previous README content described an Express/MVC app. The current backend
+  is NestJS + TypeORM.

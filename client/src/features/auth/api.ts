@@ -1,4 +1,6 @@
-import axios, { AxiosRequestConfig } from "axios";
+import axios from "axios";
+import type { InternalAxiosRequestConfig } from "axios";
+import { useAuthStore } from "./authStore";
 import type {
   LoginCredentials,
   RegisterCredentials,
@@ -6,9 +8,14 @@ import type {
   ProfileUpdateData,
   PasswordChangeData,
 } from "./types";
+import type { User } from "../../types/auth";
+import api from "../../utils/api";
+import { API_BASE_URL } from "../../config/api-url";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+type ChangePasswordResponse = {
+  message: string;
+  user: User;
+};
 
 // Create axios instance
 const authApi = axios.create({
@@ -19,9 +26,10 @@ const authApi = axios.create({
 });
 
 // Add token to requests if available
-authApi.interceptors.request.use((config: AxiosRequestConfig) => {
-  const token = localStorage.getItem("token");
-  if (token && config.headers) {
+authApi.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const token = useAuthStore.getState().token;
+  if (token) {
+    config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -41,8 +49,13 @@ export const authService = {
   },
 
   // Get user profile
-  getProfile: async () => {
-    const response = await authApi.get("/profile");
+  getProfile: async (): Promise<User> => {
+    const response = await api.get("/auth/profile");
+    return response.data;
+  },
+
+  refresh: async (refreshToken: string): Promise<AuthResponse> => {
+    const response = await authApi.post("/refresh", { refreshToken });
     return response.data;
   },
 
@@ -53,15 +66,22 @@ export const authService = {
   },
 
   // Change password
-  changePassword: async (data: PasswordChangeData) => {
-    const response = await authApi.put("/change-password", data);
+  changePassword: async (
+    data: PasswordChangeData,
+  ): Promise<ChangePasswordResponse> => {
+    const response = await api.put("/auth/change-password", data);
     return response.data;
   },
 
-  // Logout (client-side only)
-  logout: () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+  logout: async () => {
+    const refreshToken = useAuthStore.getState().refreshToken;
+    try {
+      await authApi.post("/logout", refreshToken ? { refreshToken } : {});
+    } catch {
+      // Local session cleanup must not depend on network-side revocation.
+    } finally {
+      useAuthStore.getState().logout();
+    }
   },
 };
 

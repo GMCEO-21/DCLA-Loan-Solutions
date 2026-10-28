@@ -3,8 +3,9 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
-  role: "user" | "admin";
+  role: string;
   isActive: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,15 +25,17 @@ export interface RegisterCredentials {
 export interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  isInitialized?: boolean;
 }
 
 export interface AuthResponse {
-  message: string;
   user: User;
-  token: string;
+  access_token: string;
+  refresh_token: string;
 }
 
 export interface ProfileUpdateData {
