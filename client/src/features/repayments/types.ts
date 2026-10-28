@@ -15,6 +15,8 @@ export interface RepaymentCenter {
 
 export interface RepaymentLoan {
   id: string;
+  status?: string;
+  balance?: number | string | null;
 }
 
 export interface Repayment {
