@@ -7,6 +7,7 @@ import ForbiddenPage from "@components/common/ForbiddenPage";
 import { canAccessPath, getDefaultRouteForRole } from "@features/auth/access";
 
 const LoginPage = lazy(() => import("@features/auth/pages/LoginPage"));
+const LandingPage = lazy(() => import("@features/public/pages/LandingPage"));
 const DashboardPage = lazy(
   () => import("@features/dashboard/pages/DashboardPage"),
 );
@@ -52,12 +53,7 @@ export default function AppRouter() {
   return (
     <Suspense fallback={<FullScreenLoader />}>
       <Routes>
-        <Route
-          path="/"
-          element={
-            <Navigate to={token ? defaultAuthenticatedRoute : "/login"} />
-          }
-        />
+        <Route path="/" element={<LandingPage />} />
         <Route
           path="/login"
           element={

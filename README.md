@@ -1,4 +1,4 @@
-﻿# DCLA Loan Solutions - Lending Management System
+﻿# DCLA Business Solutions - Lending Management System
 
 A loan and collections management system with a NestJS + PostgreSQL backend and a React + MUI frontend.
 

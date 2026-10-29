@@ -191,7 +191,7 @@ export const generateLoanPassbookPDF = async (
       <Page size="A4" style={styles.page}>
         <Text style={[styles.watermarkText, { left: 150, top: 100 }]} fixed>DCLA</Text>
 
-        <Text style={styles.headerText}>DCLA LOAN SOLUTIONS</Text>
+        <Text style={styles.headerText}>DCLA BUSINESS SOLUTIONS</Text>
 
         <View style={styles.grid}>
           <InfoRow label1="Client Name" value1={fullName} label2="Loan Amount" value2={`P ${principal.toLocaleString()}`} />
@@ -212,7 +212,7 @@ export const generateLoanPassbookPDF = async (
           ))}
         </View>
 
-        <Text style={styles.footer}>| Thank you for trusting DCLA Loan Solutions |</Text>
+        <Text style={styles.footer}>| Thank you for trusting DCLA Business Solutions |</Text>
       </Page>
     </Document>
   );

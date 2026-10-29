@@ -191,7 +191,7 @@ export async function exportCollectorPdf(params: {
         ) : null}
 
         <Text style={styles.footer}>
-          Prepared for collection monitoring • DCLA Loan Solutions
+          Prepared for collection monitoring • DCLA Business Solutions
         </Text>
       </Page>
     </Document>

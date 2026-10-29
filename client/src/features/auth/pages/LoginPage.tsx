@@ -160,7 +160,7 @@ export default function LoginPage() {
               textAlign: "center",
             }}
           >
-            DCLA Loan Solutions
+            DCLA Business Solutions
           </Typography>
         </Box>
         <Paper
