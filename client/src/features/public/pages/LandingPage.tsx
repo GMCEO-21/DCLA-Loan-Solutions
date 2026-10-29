@@ -2,6 +2,7 @@ import { Box } from "@mui/material";
 import LandingNavbar from "../components/LandingNavbar";
 import HeroSection from "../components/HeroSection";
 import AboutSection from "../components/AboutSection";
+import ActivityGallerySection from "../components/ActivityGallerySection";
 import LoanServicesSection from "../components/LoanServicesSection";
 import WhyChooseDclaSection from "../components/WhyChooseDclaSection";
 import HowItWorksSection from "../components/HowItWorksSection";
@@ -27,6 +28,7 @@ export default function LandingPage() {
       <Box component="main">
         <HeroSection />
         <AboutSection />
+        <ActivityGallerySection />
         <LoanServicesSection />
         <WhyChooseDclaSection />
         <HowItWorksSection />

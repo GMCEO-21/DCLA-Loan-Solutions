@@ -25,11 +25,48 @@ describe("LandingPage", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.getByText("About DCLA")).toBeInTheDocument();
+    expect(screen.getByText("DCLA Activities")).toBeInTheDocument();
     expect(container).toHaveTextContent("DCLA Business Solutions");
     expect(
       screen.getByRole("heading", { name: "Frequently asked questions." }),
     ).toBeInTheDocument();
   }, 15_000);
+
+  it("renders the activities gallery between About and Loan Services", () => {
+    renderLandingPage();
+
+    const gallery = screen.getByRole("region", {
+      name: "DCLA activities photo gallery",
+    });
+    const galleryImages = within(gallery).getAllByRole("img");
+    const activitiesSection = screen
+      .getByRole("heading", {
+        name: "Supporting businesses and communities beyond lending.",
+      })
+      .closest("section");
+    const aboutSection = screen.getByText("About DCLA").closest("section");
+    const loanServicesSection = screen
+      .getByRole("heading", { name: "Support for the needs that matter." })
+      .closest("section");
+
+    if (!aboutSection || !activitiesSection || !loanServicesSection) {
+      throw new Error("Expected landing-page sections were not rendered");
+    }
+
+    expect(galleryImages).toHaveLength(11);
+    galleryImages.forEach((image) => {
+      expect(image).toHaveAttribute("loading", "lazy");
+      expect(image).toHaveAttribute("alt", expect.not.stringMatching(/^$/));
+    });
+    expect(
+      aboutSection.compareDocumentPosition(activitiesSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      activitiesSection.compareDocumentPosition(loanServicesSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 
   it("uses the approved login and contact destinations", () => {
     renderLandingPage();

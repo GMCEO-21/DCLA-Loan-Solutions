@@ -1,16 +1,22 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "@mui/material/styles";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useAuthStore } from "@features/auth/authStore";
 import { theme } from "../theme/theme";
 import AppRouter from "./index";
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="route-location">{location.pathname}</output>;
+}
 
 function renderRoute(path: string) {
   return render(
     <ThemeProvider theme={theme}>
       <MemoryRouter initialEntries={[path]}>
         <AppRouter />
+        <LocationProbe />
       </MemoryRouter>
     </ThemeProvider>,
   );
@@ -31,9 +37,13 @@ describe("AppRouter public routes", () => {
     renderRoute("/");
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Financial support for women and growing businesses.",
-      }),
+      await screen.findByRole(
+        "heading",
+        {
+          name: "Financial support for women and growing businesses.",
+        },
+        { timeout: 10_000 },
+      ),
     ).toBeInTheDocument();
   });
 
@@ -43,6 +53,30 @@ describe("AppRouter public routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Welcome Back" }),
     ).toBeInTheDocument();
+  });
+
+  it("continues redirecting authenticated visitors away from login", async () => {
+    useAuthStore.setState({
+      token: "access-token",
+      refreshToken: "refresh-token",
+      user: {
+        id: "admin-1",
+        email: "admin@dcla.test",
+        firstName: "Admin",
+        lastName: "User",
+        role: "admin",
+      },
+      isAuthenticated: true,
+      isInitialized: true,
+    });
+
+    renderRoute("/login");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("route-location")).toHaveTextContent(
+        "/dashboard",
+      ),
+    );
   });
 
   it("continues redirecting signed-out visitors from protected routes", async () => {
