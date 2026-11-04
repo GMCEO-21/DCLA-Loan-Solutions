@@ -45,6 +45,21 @@ describe("AppRouter public routes", () => {
         { timeout: 10_000 },
       ),
     ).toBeInTheDocument();
+    expect(document.title).toBe(
+      "DCLA Business Solutions | Financial Support in Valencia City",
+    );
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "index,follow",
+    );
+    expect(document.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://dclasolutions.com/",
+    );
+    expect(document.getElementById("dcla-home-structured-data")).toHaveAttribute(
+      "type",
+      "application/ld+json",
+    );
   });
 
   it("preserves the existing login route for signed-out visitors", async () => {
@@ -53,6 +68,12 @@ describe("AppRouter public routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Welcome Back" }),
     ).toBeInTheDocument();
+    expect(document.title).toBe("Sign In | DCLA Business Solutions");
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex,nofollow",
+    );
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
   });
 
   it("continues redirecting authenticated visitors away from login", async () => {
@@ -87,5 +108,23 @@ describe("AppRouter public routes", () => {
         screen.getByRole("heading", { name: "Welcome Back" }),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("renders a noindex Not Found page for unknown routes", async () => {
+    renderRoute("/missing-page");
+
+    expect(
+      await screen.findByRole("heading", { name: "Page Not Found" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute(
+      "href",
+      "/",
+    );
+    expect(document.title).toBe("Page Not Found | DCLA Business Solutions");
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex,nofollow",
+    );
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
   });
 });

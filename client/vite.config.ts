@@ -25,5 +25,15 @@ export default defineConfig(({ mode }) => {
         "@utils": path.resolve(__dirname, "src/utils"),
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, "index.html"),
+          login: path.resolve(__dirname, "login.html"),
+          internal: path.resolve(__dirname, "internal.html"),
+          notFound: path.resolve(__dirname, "404.html"),
+        },
+      },
+    },
   };
 });

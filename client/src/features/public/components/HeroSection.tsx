@@ -171,6 +171,9 @@ export default function HeroSection() {
             component="img"
             src={heroImage}
             alt="Women reviewing business documents at a neighborhood shop"
+            width={1536}
+            height={1024}
+            decoding="async"
             sx={{
               position: "absolute",
               inset: 0,

@@ -7,9 +7,25 @@ import {
 } from "@testing-library/react";
 import { ThemeProvider } from "@mui/material/styles";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { theme } from "../../../theme/theme";
 import LandingPage from "./LandingPage";
+
+class MockPreloadImage {
+  decoding = "auto";
+  onerror: (() => void) | null = null;
+  onload: (() => void) | null = null;
+
+  set src(_value: string) {
+    queueMicrotask(() => this.onload?.());
+  }
+
+  decode() {
+    return Promise.resolve();
+  }
+
+  setAttribute() {}
+}
 
 function renderLandingPage() {
   return render(
@@ -22,6 +38,10 @@ function renderLandingPage() {
 }
 
 describe("LandingPage", () => {
+  beforeEach(() => {
+    vi.stubGlobal("Image", MockPreloadImage);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -43,23 +63,6 @@ describe("LandingPage", () => {
   }, 15_000);
 
   it("renders the pooled activities gallery between About and Loan Services", async () => {
-    class MockPreloadImage {
-      decoding = "auto";
-      onerror: (() => void) | null = null;
-      onload: (() => void) | null = null;
-
-      set src(_value: string) {
-        queueMicrotask(() => this.onload?.());
-      }
-
-      decode() {
-        return Promise.resolve();
-      }
-
-      setAttribute() {}
-    }
-
-    vi.stubGlobal("Image", MockPreloadImage);
     renderLandingPage();
 
     const gallery = screen.getByRole("region", {
