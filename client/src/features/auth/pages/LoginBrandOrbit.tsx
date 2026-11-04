@@ -28,6 +28,15 @@ import activity13 from "../../../assets/activities/activity-13.jpg";
 import activity14 from "../../../assets/activities/activity-14.jpg";
 import activity15 from "../../../assets/activities/activity-15.jpg";
 import activity16 from "../../../assets/activities/activity-16.jpg";
+import activity17 from "../../../assets/activities/activity-17.jpg";
+import activity18 from "../../../assets/activities/activity-18.jpg";
+import activity19 from "../../../assets/activities/activity-19.jpg";
+import activity20 from "../../../assets/activities/activity-20.jpg";
+import activity21 from "../../../assets/activities/activity-21.jpg";
+import activity22 from "../../../assets/activities/activity-22.jpg";
+import activity23 from "../../../assets/activities/activity-23.jpg";
+import activity24 from "../../../assets/activities/activity-24.jpg";
+import activity25 from "../../../assets/activities/activity-25.jpg";
 import "./LoginBrandOrbit.css";
 
 const activityPhotos = [
@@ -47,9 +56,18 @@ const activityPhotos = [
   activity14,
   activity15,
   activity16,
+  activity17,
+  activity18,
+  activity19,
+  activity20,
+  activity21,
+  activity22,
+  activity23,
+  activity24,
+  activity25,
 ];
 
-const slotCount = 6;
+const slotCount = 10;
 const orbitDurationMs = 32_000;
 const crossfadeDurationMs = 650;
 
@@ -186,8 +204,8 @@ export default function LoginBrandOrbit() {
       const root = rootRef.current;
       if (!root) return;
 
-      const radiusX = root.clientWidth * 0.36;
-      const radiusY = root.clientHeight * 0.23;
+      const radiusX = root.clientWidth * (root.clientWidth < 600 ? 0.4 : 0.43);
+      const radiusY = root.clientHeight * 0.25;
       const progress = (elapsed % orbitDurationMs) / orbitDurationMs;
 
       slotRefs.current.forEach((slot, index) => {

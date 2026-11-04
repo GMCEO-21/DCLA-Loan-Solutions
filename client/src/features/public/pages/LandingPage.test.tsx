@@ -53,7 +53,7 @@ describe("LandingPage", () => {
       throw new Error("Expected landing-page sections were not rendered");
     }
 
-    expect(galleryImages).toHaveLength(11);
+    expect(galleryImages).toHaveLength(30);
     galleryImages.forEach((image) => {
       expect(image).toHaveAttribute("loading", "lazy");
       expect(image).toHaveAttribute("alt", expect.not.stringMatching(/^$/));

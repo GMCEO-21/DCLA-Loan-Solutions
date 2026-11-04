@@ -125,8 +125,9 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: clamp(176px, 25.4%, 190px);
+  width: clamp(184px, 25%, 190px);
   aspect-ratio: 3 / 2;
+  box-sizing: border-box;
   overflow: hidden;
   border: 3px solid rgba(255, 253, 249, 0.9);
   border-radius: 11px;
@@ -167,7 +168,7 @@
   z-index: 4;
   display: grid;
   place-items: center;
-  width: clamp(132px, 27%, 162px);
+  width: clamp(154px, 24%, 170px);
   aspect-ratio: 1;
   border: 2px solid rgba(74, 222, 128, 0.76);
   border-radius: 50%;
@@ -236,12 +237,12 @@
   }
 
   .login-orbit-photo {
-    width: clamp(142px, 28%, 154px);
+    width: clamp(138px, 28%, 150px);
     border-width: 2px;
   }
 
   .login-orbit-logo {
-    width: clamp(116px, 27%, 138px);
+    width: clamp(124px, 28%, 146px);
   }
 
   .login-orbit-motion-toggle.MuiButton-root {

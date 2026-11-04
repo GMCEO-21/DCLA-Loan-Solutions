@@ -46,7 +46,7 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: "Sign In" })).toBeVisible();
     expect(screen.getAllByText("DCLA Business Solutions")).not.toHaveLength(0);
     expect(screen.getByText("SECURE INTERNAL ACCESS")).toBeVisible();
-    expect(container.querySelectorAll(".login-orbit-photo")).toHaveLength(6);
+    expect(container.querySelectorAll(".login-orbit-photo")).toHaveLength(10);
     expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute(
       "href",
       "/",

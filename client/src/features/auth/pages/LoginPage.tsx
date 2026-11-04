@@ -394,7 +394,7 @@ export default function LoginPage() {
               gap: 0.75,
               px: 1.25,
               py: 0.75,
-              mb: 3,
+              mb: 3.5,
               borderRadius: 1.5,
               bgcolor: "rgba(16, 185, 129, 0.1)",
               color: "#056244",
@@ -406,17 +406,10 @@ export default function LoginPage() {
             </Typography>
           </Box>
 
-          <Box sx={{ textAlign: "left", mb: 3 }}>
-            <Typography
-              variant="overline"
-              sx={{ color: "success.dark", fontWeight: 750 }}
-            >
-              DCLA MANAGEMENT SYSTEM
-            </Typography>
+          <Box sx={{ textAlign: "left", mb: 3.5 }}>
             <Typography
               component="h1"
               sx={{
-                mt: 0.5,
                 color: "primary.dark",
                 fontSize: { xs: 30, sm: 36 },
                 fontWeight: 750,
@@ -430,7 +423,7 @@ export default function LoginPage() {
               color="text.secondary"
               sx={{ mt: 1.25, fontSize: 15.5, lineHeight: 1.65 }}
             >
-              Sign in to access the DCLA management system.
+              Sign in to continue to your account.
             </Typography>
           </Box>
 
@@ -552,7 +545,7 @@ export default function LoginPage() {
               display: "flex",
               alignItems: "flex-start",
               gap: 1.25,
-              mt: 3,
+              mt: 3.5,
               color: "text.secondary",
             }}
           >
@@ -568,13 +561,13 @@ export default function LoginPage() {
                 Protected access
               </Typography>
               <Typography variant="body2">
-                Secure access to the DCLA management system.
+                Your account and session are secured.
               </Typography>
             </Box>
           </Box>
           <Typography
             sx={{
-              mt: 3,
+              mt: 3.5,
               pt: 2.5,
               borderTop: "1px solid",
               borderColor: "rgba(148, 163, 184, 0.28)",
@@ -583,7 +576,7 @@ export default function LoginPage() {
               fontSize: 12.5,
             }}
           >
-            DCLA Internal Lending Management System
+            DCLA Business Solutions
           </Typography>
         </Box>
       </Box>
