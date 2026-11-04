@@ -92,7 +92,7 @@ export default function Header({ title }: HeaderProps) {
               component="div"
               sx={{ flexGrow: 1, minWidth: 0, fontSize: 16, fontWeight: 600 }}
             >
-              {title ?? currentLabel ?? "DCLA Loan Solutions"}
+              {title ?? currentLabel ?? "DCLA Business Solutions"}
             </Typography>
           </Toolbar>
         </AppBar>
