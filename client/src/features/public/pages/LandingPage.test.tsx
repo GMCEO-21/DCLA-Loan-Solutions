@@ -1,7 +1,13 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { ThemeProvider } from "@mui/material/styles";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { theme } from "../../../theme/theme";
 import LandingPage from "./LandingPage";
 
@@ -16,6 +22,10 @@ function renderLandingPage() {
 }
 
 describe("LandingPage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the public landing page with its required sections", () => {
     const { container } = renderLandingPage();
 
@@ -32,13 +42,29 @@ describe("LandingPage", () => {
     ).toBeInTheDocument();
   }, 15_000);
 
-  it("renders the activities gallery between About and Loan Services", () => {
+  it("renders the pooled activities gallery between About and Loan Services", async () => {
+    class MockPreloadImage {
+      decoding = "auto";
+      onerror: (() => void) | null = null;
+      onload: (() => void) | null = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+
+      decode() {
+        return Promise.resolve();
+      }
+
+      setAttribute() {}
+    }
+
+    vi.stubGlobal("Image", MockPreloadImage);
     renderLandingPage();
 
     const gallery = screen.getByRole("region", {
       name: "DCLA activities photo gallery",
     });
-    const galleryImages = within(gallery).getAllByRole("img");
     const activitiesSection = screen
       .getByRole("heading", {
         name: "Supporting businesses and communities beyond lending.",
@@ -53,10 +79,27 @@ describe("LandingPage", () => {
       throw new Error("Expected landing-page sections were not rendered");
     }
 
-    expect(galleryImages).toHaveLength(30);
+    await waitFor(() => {
+      expect(gallery.querySelectorAll("img")).toHaveLength(10);
+    });
+
+    const galleryImages = within(gallery).getAllByRole("img");
+    const visibleSources = galleryImages.map((image) =>
+      image.getAttribute("src"),
+    );
+
+    expect(gallery).toHaveAttribute("data-visible-slot-count", "10");
+    expect(gallery).toHaveAttribute("data-ready-buffer-target", "4");
+    expect(gallery).toHaveAttribute("data-ready-count", "4");
+    expect(gallery.querySelectorAll("[data-activity-slot]")).toHaveLength(10);
+    expect(new Set(visibleSources)).toHaveProperty("size", 10);
     galleryImages.forEach((image) => {
-      expect(image).toHaveAttribute("loading", "lazy");
+      expect(image).not.toHaveAttribute("loading");
+      expect(image).toHaveAttribute("decoding", "async");
+      expect(image).toHaveAttribute("width", "780");
+      expect(image).toHaveAttribute("height", "585");
       expect(image).toHaveAttribute("alt", expect.not.stringMatching(/^$/));
+      expect(image.parentElement).toHaveAttribute("data-loaded", "false");
     });
     expect(
       aboutSection.compareDocumentPosition(activitiesSection) &
