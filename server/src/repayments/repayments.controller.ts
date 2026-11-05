@@ -39,6 +39,12 @@ export class RepaymentsController {
     return this.repaymentsService.requestReversal(id, body, req.user);
   }
 
+  @Roles(ROLE.Cashier)
+  @Get('payment-limit/:loanId')
+  getPaymentLimit(@Param('loanId', new ParseUUIDPipe()) loanId: string) {
+    return this.repaymentsService.getPaymentLimit(loanId);
+  }
+
   @Roles(ROLE.Manager)
   @Get('pending')
   findPending() {

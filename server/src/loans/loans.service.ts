@@ -436,6 +436,12 @@ export class LoansService {
     const availableSavings = Number(loan.savings || 0);
     const chargePolicyEligible = this.loanChargePolicyService.isEligible(loan);
 
+    if (!chargePolicyEligible && decimal(cashAmount).gt(loan.balance)) {
+      throw new BadRequestException(
+        'Payment exceeds the remaining loan balance. Refresh and correct the amount.',
+      );
+    }
+
     if (chargePolicyEligible && !ledgerContext) {
       throw new Error(
         'Repayment ledger context is required for a policy-enrolled loan',

@@ -38,6 +38,15 @@ import {
   SAVINGS_REFERENCE_TYPE,
 } from '../savings/savings-ledger.utils';
 import { LoanChargesService } from '../loans/loan-charges.service';
+import { randomUUID } from 'node:crypto';
+import { money } from '../common/money';
+import { calculatePaymentLimit } from './payment-limit';
+
+class PaymentLimitProjection extends Error {
+  constructor(readonly loan: Loan) {
+    super('Rollback payment-limit projection');
+  }
+}
 
 export interface PendingRepaymentCollectionGroup {
   batchId: string | null;
@@ -223,8 +232,11 @@ export class RepaymentsService implements OnModuleInit {
     centerId: string,
     collectionDate: string,
     submittedById?: string | null,
+    manager?: EntityManager,
   ): Promise<CollectionBatch> {
-    const existing = await this.collectionBatchRepo.findOne({
+    const repository =
+      manager?.getRepository(CollectionBatch) ?? this.collectionBatchRepo;
+    const existing = await repository.findOne({
       where: {
         centerId,
         collectionDate,
@@ -236,7 +248,7 @@ export class RepaymentsService implements OnModuleInit {
       return existing;
     }
 
-    const created = this.collectionBatchRepo.create({
+    const created = repository.create({
       centerId,
       collectionDate,
       status: CollectionBatchStatus.PENDING,
@@ -245,13 +257,17 @@ export class RepaymentsService implements OnModuleInit {
     });
 
     try {
-      return await this.collectionBatchRepo.save(created);
+      return manager
+        ? await manager.transaction((nested) =>
+            nested.getRepository(CollectionBatch).save(created),
+          )
+        : await repository.save(created);
     } catch (error) {
       if (!this.isUniqueConstraintError(error)) {
         throw error;
       }
 
-      const current = await this.collectionBatchRepo.findOne({
+      const current = await repository.findOne({
         where: {
           centerId,
           collectionDate,
@@ -292,12 +308,17 @@ export class RepaymentsService implements OnModuleInit {
     if (
       amount === undefined ||
       amount === null ||
-      Number.isNaN(Number(amount))
+      !Number.isFinite(Number(amount))
     ) {
       throw new BadRequestException('Amount must be provided as a number');
     }
 
     const numericAmount = Number(amount);
+    if (!money(numericAmount).eq(numericAmount)) {
+      throw new BadRequestException(
+        'Payment amount must use at most two decimal places',
+      );
+    }
     if (numericAmount < 0) {
       throw new BadRequestException('Amount must be >= 0');
     }
@@ -308,85 +329,191 @@ export class RepaymentsService implements OnModuleInit {
       );
     }
 
-    const [loan, member, center] = await Promise.all([
-      this.loanRepo.findOne({
-        where: { id: loanId },
-        relations: ['borrower', 'borrower.center'],
-      }),
-      this.memberRepo.findOne({
-        where: { id: memberId },
-        relations: ['center'],
-      }),
-      this.centerRepo.findOne({ where: { id: centerId } }),
-    ]);
+    return this.repaymentRepo.manager.transaction(async (manager) => {
+      const loanRepository = manager.getRepository(Loan);
+      const repaymentRepository = manager.getRepository(Repayment);
+      await loanRepository
+        .createQueryBuilder('loan')
+        .setLock('pessimistic_write')
+        .where('loan.id = :loanId', { loanId })
+        .getOne();
+      const [loan, member, center] = await Promise.all([
+        loanRepository.findOne({
+          where: { id: loanId },
+          relations: ['borrower', 'borrower.center'],
+        }),
+        manager.getRepository(Member).findOne({
+          where: { id: memberId },
+          relations: ['center'],
+        }),
+        manager.getRepository(Center).findOne({ where: { id: centerId } }),
+      ]);
 
-    if (!loan) throw new NotFoundException('Loan not found');
-    if (!member) throw new NotFoundException('Member not found');
-    if (!center) throw new NotFoundException('Center not found');
+      if (!loan) throw new NotFoundException('Loan not found');
+      if (!member) throw new NotFoundException('Member not found');
+      if (!center) throw new NotFoundException('Center not found');
 
-    if (loan.status !== 'active') {
-      throw new BadRequestException(
-        'Cannot post payment for a non-active loan',
-      );
-    }
-
-    if (loan.borrower?.id !== member.id) {
-      throw new BadRequestException('Loan does not belong to the member');
-    }
-
-    if (member.center?.id !== center.id) {
-      throw new BadRequestException('Member does not belong to the center');
-    }
-
-    const activeLoans = await this.loanRepo.find({
-      where: { borrower: { id: member.id }, status: 'active' },
-    });
-    if (activeLoans.length > 1) {
-      throw new BadRequestException(
-        'Member has multiple active loans. Resolve loan records before posting payment',
-      );
-    }
-
-    if (activeLoans.length !== 1 || activeLoans[0].id !== loan.id) {
-      throw new BadRequestException(
-        'Submitted loan is not the member active loan',
-      );
-    }
-
-    const collectionDateString = this.normalizeCollectionDate(collectionDate);
-    const createdById = actor?.userId ?? null;
-    const shouldAutoApprove =
-      actor?.role === 'manager' || actor?.role === 'admin';
-    const pendingBatch = shouldAutoApprove
-      ? null
-      : await this.ensurePendingCollectionBatch(
-          center.id,
-          collectionDateString,
-          createdById,
+      if (loan.status !== 'active') {
+        throw new BadRequestException(
+          'Cannot post payment for a non-active loan',
         );
+      }
 
-    const repayment = this.repaymentRepo.create({
-      loan,
-      member,
-      center,
-      amount: numericAmount,
-      notes,
-      paymentDate: collectionDateString,
-      collectionDate: collectionDateString,
-      useSavings: Boolean(useSavings),
-      status: RepaymentStatus.PENDING,
-      operationType: RepaymentOperationType.PAYMENT,
-      relatedRepaymentId: null,
-      batchId: pendingBatch?.id ?? null,
-      createdById,
+      if (loan.borrower?.id !== member.id) {
+        throw new BadRequestException('Loan does not belong to the member');
+      }
+
+      if (member.center?.id !== center.id) {
+        throw new BadRequestException('Member does not belong to the center');
+      }
+
+      const activeLoans = await loanRepository.find({
+        where: { borrower: { id: member.id }, status: 'active' },
+      });
+      if (activeLoans.length > 1) {
+        throw new BadRequestException(
+          'Member has multiple active loans. Resolve loan records before posting payment',
+        );
+      }
+
+      if (activeLoans.length !== 1 || activeLoans[0].id !== loan.id) {
+        throw new BadRequestException(
+          'Submitted loan is not the member active loan',
+        );
+      }
+
+      const collectionDateString = this.normalizeCollectionDate(collectionDate);
+      const postingId = randomUUID();
+      const projected = await this.projectLoanForPaymentLimit(loan, manager, {
+        id: postingId,
+        collectionDate: collectionDateString,
+        cashAmount: numericAmount,
+        useSavings: Boolean(useSavings),
+      });
+      const limit = await this.paymentLimitForLoan(projected, manager);
+      if (money(numericAmount).gt(limit.maximumCashAmount)) {
+        throw new BadRequestException(
+          `Payment exceeds the remaining payable amount. Maximum cash payment is ${limit.maximumCashAmount.toFixed(2)} after pending payments. Refresh and correct the amount.`,
+        );
+      }
+      if (
+        numericAmount === 0 &&
+        (limit.availableSavings <= 0 ||
+          limit.weeklyPaymentTarget <= 0 ||
+          limit.maximumCashAmount <= 0)
+      ) {
+        throw new BadRequestException(
+          'No savings or remaining payable amount is available for this payment',
+        );
+      }
+      const createdById = actor?.userId ?? null;
+      const shouldAutoApprove =
+        actor?.role === 'manager' || actor?.role === 'admin';
+      const pendingBatch = shouldAutoApprove
+        ? null
+        : await this.ensurePendingCollectionBatch(
+            center.id,
+            collectionDateString,
+            createdById,
+            manager,
+          );
+
+      const repayment = repaymentRepository.create({
+        id: postingId,
+        loan,
+        member,
+        center,
+        amount: numericAmount,
+        notes,
+        paymentDate: collectionDateString,
+        collectionDate: collectionDateString,
+        useSavings: Boolean(useSavings),
+        status: RepaymentStatus.PENDING,
+        operationType: RepaymentOperationType.PAYMENT,
+        relatedRepaymentId: null,
+        batchId: pendingBatch?.id ?? null,
+        createdById,
+      });
+      const savedRepayment = await repaymentRepository.save(repayment);
+
+      if (!shouldAutoApprove) {
+        return savedRepayment;
+      }
+
+      return this.approvePaymentRepayment(
+        savedRepayment,
+        loan,
+        manager,
+        getFinancialBusinessDate(),
+        createdById ?? undefined,
+      );
     });
-    const savedRepayment = await this.repaymentRepo.save(repayment);
+  }
 
-    if (!shouldAutoApprove) {
-      return savedRepayment;
+  private async projectLoanForPaymentLimit(
+    loan: Loan,
+    manager: EntityManager,
+    payment?: {
+      id: string;
+      collectionDate: string;
+      cashAmount: number;
+      useSavings: boolean;
+    },
+  ): Promise<Loan> {
+    if (!this.loanChargesService.isEligible(loan)) return loan;
+    try {
+      await manager.transaction(async (projectionManager) => {
+        await this.loanChargesService.postDueChargesForLoan(
+          loan.id,
+          getFinancialBusinessDate(),
+          projectionManager,
+          payment,
+        );
+        const projected = await projectionManager
+          .getRepository(Loan)
+          .findOne({ where: { id: loan.id } });
+        if (!projected) throw new NotFoundException('Loan not found');
+        throw new PaymentLimitProjection(projected);
+      });
+    } catch (error) {
+      if (error instanceof PaymentLimitProjection) return error.loan;
+      throw error;
     }
+    throw new Error('Payment-limit projection did not roll back');
+  }
 
-    return this.approveRepayment(savedRepayment.id, createdById ?? undefined);
+  private async paymentLimitForLoan(loan: Loan, manager: EntityManager) {
+    const pending = await manager.getRepository(Repayment).find({
+      where: {
+        loan: { id: loan.id },
+        status: RepaymentStatus.PENDING,
+        operationType: RepaymentOperationType.PAYMENT,
+      },
+      order: { createdAt: 'ASC', id: 'ASC' },
+    });
+    return calculatePaymentLimit(loan, pending, this.loanChargesService);
+  }
+
+  async getPaymentLimit(loanId: string) {
+    return this.repaymentRepo.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(Loan);
+      await repository
+        .createQueryBuilder('loan')
+        .setLock('pessimistic_write')
+        .where('loan.id = :loanId', { loanId })
+        .getOne();
+      const loan = await repository.findOne({ where: { id: loanId } });
+      if (!loan) throw new NotFoundException('Loan not found');
+      if (loan.status !== 'active')
+        throw new BadRequestException(
+          'Cannot post payment for a non-active loan',
+        );
+      const projected = await this.projectLoanForPaymentLimit(loan, manager);
+      return {
+        ...(await this.paymentLimitForLoan(projected, manager)),
+        asOfDate: getFinancialBusinessDate(),
+      };
+    });
   }
 
   async requestReversal(
