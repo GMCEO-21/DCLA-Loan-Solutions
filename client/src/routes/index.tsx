@@ -4,9 +4,14 @@ import type { ReactElement } from "react";
 import { useAuthStore } from "@features/auth/authStore";
 import FullScreenLoader from "@components/common/FullScreenLoader";
 import ForbiddenPage from "@components/common/ForbiddenPage";
+import RouteMetadata from "@components/seo/RouteMetadata";
 import { canAccessPath, getDefaultRouteForRole } from "@features/auth/access";
 
 const LoginPage = lazy(() => import("@features/auth/pages/LoginPage"));
+const LandingPage = lazy(() => import("@features/public/pages/LandingPage"));
+const NotFoundPage = lazy(
+  () => import("@features/public/pages/NotFoundPage"),
+);
 const DashboardPage = lazy(
   () => import("@features/dashboard/pages/DashboardPage"),
 );
@@ -45,84 +50,80 @@ export default function AppRouter() {
     return canAccessPath(role, path) ? element : <ForbiddenPage />;
   };
 
-  if (!isInitialized) {
-    return <FullScreenLoader />;
-  }
-
   return (
-    <Suspense fallback={<FullScreenLoader />}>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <Navigate to={token ? defaultAuthenticatedRoute : "/login"} />
-          }
-        />
-        <Route
-          path="/login"
-          element={
-            token ? (
-              <Navigate to={defaultAuthenticatedRoute} replace />
-            ) : (
-              <LoginPage />
-            )
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={renderProtectedRoute("/dashboard", <DashboardPage />)}
-        />
-        <Route
-          path="/member-management"
-          element={renderProtectedRoute(
-            "/member-management",
-            <MemberManagementPage />,
-          )}
-        />
-        <Route
-          path="/centers"
-          element={renderProtectedRoute("/centers", <CentersPage />)}
-        />
-        <Route
-          path="/collections"
-          element={renderProtectedRoute("/collections", <CollectionsPage />)}
-        />
-        <Route
-          path="/portfolio"
-          element={renderProtectedRoute("/portfolio", <PortfolioPage />)}
-        />
-        <Route
-          path="/transactions"
-          element={renderProtectedRoute(
-            "/transactions",
-            <TransactionHistoryPage />,
-          )}
-        />
-        <Route
-          path="/admin/users"
-          element={renderProtectedRoute("/admin/users", <UserManagementPage />)}
-        />
-        <Route
-          path="/approvals"
-          element={renderProtectedRoute(
-            "/approvals",
-            <RepaymentApprovalsPage />,
-          )}
-        />
-        <Route
-          path="/waivers"
-          element={renderProtectedRoute("/waivers", <LoanWaiversPage />)}
-        />
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to={token ? defaultAuthenticatedRoute : "/login"}
-              replace
+    <>
+      <RouteMetadata />
+      {!isInitialized ? (
+        <FullScreenLoader />
+      ) : (
+        <Suspense fallback={<FullScreenLoader />}>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route
+              path="/login"
+              element={
+                token ? (
+                  <Navigate to={defaultAuthenticatedRoute} replace />
+                ) : (
+                  <LoginPage />
+                )
+              }
             />
-          }
-        />
-      </Routes>
-    </Suspense>
+            <Route
+              path="/dashboard"
+              element={renderProtectedRoute("/dashboard", <DashboardPage />)}
+            />
+            <Route
+              path="/member-management"
+              element={renderProtectedRoute(
+                "/member-management",
+                <MemberManagementPage />,
+              )}
+            />
+            <Route
+              path="/centers"
+              element={renderProtectedRoute("/centers", <CentersPage />)}
+            />
+            <Route
+              path="/collections"
+              element={renderProtectedRoute(
+                "/collections",
+                <CollectionsPage />,
+              )}
+            />
+            <Route
+              path="/portfolio"
+              element={renderProtectedRoute("/portfolio", <PortfolioPage />)}
+            />
+            <Route
+              path="/transactions"
+              element={renderProtectedRoute(
+                "/transactions",
+                <TransactionHistoryPage />,
+              )}
+            />
+            <Route
+              path="/admin/users"
+              element={renderProtectedRoute(
+                "/admin/users",
+                <UserManagementPage />,
+              )}
+            />
+            <Route
+              path="/approvals"
+              element={renderProtectedRoute(
+                "/approvals",
+                <RepaymentApprovalsPage />,
+              )}
+            />
+            <Route
+              path="/waivers"
+              element={renderProtectedRoute("/waivers", <LoanWaiversPage />)}
+            />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </Suspense>
+      )}
+    </>
   );
 }

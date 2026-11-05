@@ -11,6 +11,7 @@ describe('RepaymentsController validation', () => {
   const service = {
     create: jest.fn().mockResolvedValue({ id: 'repayment-id' }),
     getScheduleForLoan: jest.fn().mockResolvedValue([]),
+    getPaymentLimit: jest.fn().mockResolvedValue({ maximumCashAmount: 450 }),
   };
 
   beforeAll(async () => {
@@ -65,6 +66,27 @@ describe('RepaymentsController validation', () => {
   it('returns 400 for an invalid UUID route parameter', async () => {
     await request(httpServer)
       .get('/repayments/loan/not-a-uuid/schedule')
+      .expect(400);
+  });
+
+  it('validates payment-limit loan references', async () => {
+    await request(httpServer)
+      .get('/repayments/payment-limit/not-a-uuid')
+      .expect(400);
+    await request(httpServer)
+      .get('/repayments/payment-limit/00000000-0000-4000-8000-000000000001')
+      .expect(200, { maximumCashAmount: 450 });
+  });
+
+  it('rejects fractional-cent cash rather than rounding silently', async () => {
+    await request(httpServer)
+      .post('/repayments')
+      .send({
+        loanId: '00000000-0000-4000-8000-000000000001',
+        memberId: '00000000-0000-4000-8000-000000000002',
+        centerId: '00000000-0000-4000-8000-000000000003',
+        amount: 450.001,
+      })
       .expect(400);
   });
 });

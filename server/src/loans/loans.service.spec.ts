@@ -551,6 +551,39 @@ describe('LoansService', () => {
         createdAt: new Date('2026-09-01T00:00:00.000Z'),
       }) as Loan;
 
+    it('rejects stale or direct legacy overpayments before changing balances or savings', async () => {
+      const harness = createLoanWriterHarness([
+        { ...repaymentLoan(), balance: 450 } as Loan,
+      ]);
+      await expect(
+        harness.service.applyRepayment(
+          'loan-1',
+          450.01,
+          false,
+          harness.manager,
+        ),
+      ).rejects.toThrow('exceeds the remaining loan balance');
+      expect(Number(harness.loans[0].balance)).toBe(450);
+      expect(Number(harness.loans[0].amountPaid)).toBe(0);
+      expect(harness.entries).toHaveLength(0);
+    });
+
+    it('accepts exact final cash and valid advance payments', async () => {
+      const final = createLoanWriterHarness([
+        { ...repaymentLoan(), balance: 450 } as Loan,
+      ]);
+      await final.service.applyRepayment('loan-1', 450, false, final.manager);
+      expect(Number(final.loans[0].balance)).toBe(0);
+      const advance = createLoanWriterHarness([repaymentLoan()]);
+      await advance.service.applyRepayment(
+        'loan-1',
+        6000,
+        false,
+        advance.manager,
+      );
+      expect(Number(advance.loans[0].balance)).toBe(6000);
+    });
+
     it('records the exact savings portion with deterministic repayment provenance', async () => {
       const harness = createLoanWriterHarness([repaymentLoan()]);
 

@@ -19,7 +19,7 @@ import { Payment, AccountBalance, Savings, Close } from "@mui/icons-material";
 import { useState, useEffect } from "react";
 import collectionsService from "../api";
 import type { MemberWithLoans } from "../types";
-import type { Repayment } from "@features/repayments/types";
+import type { Repayment, RepaymentPaymentLimit } from "@features/repayments/types";
 import { getApiErrorMessage } from "@utils/apiError";
 
 type MemberLoan = MemberWithLoans["loans"][number] & {
@@ -56,6 +56,37 @@ export function PaymentDialog({
   const [useSavings, setUseSavings] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentLimit, setPaymentLimit] = useState<RepaymentPaymentLimit | null>(null);
+  const [limitError, setLimitError] = useState<string | null>(null);
+  const [limitRequest, setLimitRequest] = useState(0);
+  const activeLoans = member ? getActiveLoans(member) : [];
+  const activeLoan = activeLoans.length === 1 ? activeLoans[0] : undefined;
+  const activeLoanId = activeLoan?.id;
+
+  useEffect(() => {
+    let cancelled = false;
+    setPaymentLimit(null);
+    setLimitError(null);
+    if (open && activeLoanId) {
+      collectionsService.getPaymentLimit(activeLoanId).then((limit) => {
+        if (cancelled) return;
+        if (limit.loanId !== activeLoanId || limit.loanStatus !== "active" ||
+          ![limit.maximumCashAmount, limit.weeklyPaymentTarget, limit.availableSavings].every((value) => Number.isFinite(value) && value >= 0)) {
+          throw new Error("Payment limit is unavailable. Refresh before posting.");
+        }
+        setPaymentLimit(limit);
+      }).catch((cause: unknown) => {
+        if (!cancelled) setLimitError(getApiErrorMessage(cause));
+      });
+    }
+    return () => { cancelled = true; };
+  }, [open, activeLoanId, limitRequest]);
+
+  useEffect(() => {
+    if (paymentLimit && Number(paymentAmount || "0") >= paymentLimit.weeklyPaymentTarget) {
+      setUseSavings(false);
+    }
+  }, [paymentAmount, paymentLimit]);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -74,8 +105,8 @@ export function PaymentDialog({
     setError(null);
 
     try {
-      const amount = Number.parseFloat(paymentAmount || "0");
-      if (Number.isNaN(amount) || amount < 0) {
+      const amount = Number(paymentAmount || "0");
+      if (!Number.isFinite(amount) || amount < 0) {
         throw new Error("Payment amount must be a positive number or zero");
       }
 
@@ -90,9 +121,17 @@ export function PaymentDialog({
         );
       }
 
-      const weeklyPaymentDue =
-        activeLoan.weeklyPaymentAmount || member.weeklyPaymentAmount || 0;
-      const availableSavings = Number(activeLoan.savings || 0);
+      if (!paymentLimit || paymentLimit.loanId !== activeLoan.id) {
+        throw new Error("Wait for the current payment limit before posting.");
+      }
+      if (Math.abs(amount * 100 - Math.round(amount * 100)) > 0.0000001) {
+        throw new Error("Payment amount must use at most two decimal places.");
+      }
+      if (Math.round(amount * 100) > Math.round(paymentLimit.maximumCashAmount * 100)) {
+        throw new Error(`Payment exceeds the remaining payable amount. Maximum cash payment is ${formatCurrency(paymentLimit.maximumCashAmount)}.`);
+      }
+      const weeklyPaymentDue = paymentLimit.weeklyPaymentTarget;
+      const availableSavings = paymentLimit.availableSavings;
       const numericAmount = Math.max(amount, 0);
       const shortfall = Math.max(0, weeklyPaymentDue - numericAmount);
       const savingsToApply = useSavings
@@ -109,7 +148,7 @@ export function PaymentDialog({
         }
         if (shortfall <= 0) {
           throw new Error(
-            "Cash payment already covers the weekly amount. Reduce the amount or disable savings.",
+            "Cash payment already covers the current payment target. Reduce the amount or disable savings.",
           );
         }
         if (savingsToApply <= 0) {
@@ -133,6 +172,7 @@ export function PaymentDialog({
     } catch (error) {
       console.error("Failed to process payment:", error);
       setError(getApiErrorMessage(error));
+      setLimitRequest((request) => request + 1);
     } finally {
       setProcessing(false);
     }
@@ -140,20 +180,26 @@ export function PaymentDialog({
 
   if (!member) return null;
 
-  const activeLoans = getActiveLoans(member);
-  const activeLoan = activeLoans.length === 1 ? activeLoans[0] : undefined;
   const weeklyPayment =
     activeLoan?.weeklyPaymentAmount || member.weeklyPaymentAmount || 0;
-  const availableSavings = Number(activeLoan?.savings ?? 0);
-  const parsedAmount = Number.parseFloat(paymentAmount || "0");
-  const paymentAmountNum = Number.isNaN(parsedAmount) ? 0 : parsedAmount;
-  const shortfall = Math.max(0, weeklyPayment - paymentAmountNum);
+  const availableSavings = paymentLimit?.availableSavings ?? 0;
+  const parsedAmount = Number(paymentAmount || "0");
+  const paymentAmountNum = Number.isFinite(parsedAmount) ? parsedAmount : 0;
+  const invalidAmount = !Number.isFinite(parsedAmount) || parsedAmount < 0 ||
+    Math.abs(parsedAmount * 100 - Math.round(parsedAmount * 100)) > 0.0000001;
+  const exceedsLimit = paymentLimit !== null && Math.round(paymentAmountNum * 100) > Math.round(paymentLimit.maximumCashAmount * 100);
+  const amountError = invalidAmount
+    ? "Enter a non-negative amount with at most two decimal places."
+    : exceedsLimit ? `Payment exceeds the remaining payable amount. Maximum cash payment is ${formatCurrency(paymentLimit.maximumCashAmount)}.` : null;
+  const shortfall = Math.max(0, (paymentLimit?.weeklyPaymentTarget ?? 0) - paymentAmountNum);
   const canUseSavings = shortfall > 0 && availableSavings > 0;
   const savingsToApply = useSavings
     ? Math.min(shortfall, Math.max(availableSavings, 0))
     : 0;
   const isSubmitDisabled =
     processing ||
+    !paymentLimit || paymentLimit.loanId !== activeLoanId ||
+    paymentLimit.maximumCashAmount <= 0 || Boolean(amountError) ||
     activeLoans.length !== 1 ||
     (!useSavings && paymentAmountNum <= 0) ||
     (useSavings && (shortfall <= 0 || availableSavings <= 0));
@@ -205,6 +251,21 @@ export function PaymentDialog({
       </DialogTitle>
 
       <DialogContent sx={{ p: { xs: 2, sm: 2.5 }, overflowY: "auto" }}>
+        {open && activeLoanId && !paymentLimit && !limitError && (
+          <Alert severity="info" sx={{ mb: 2 }}>Loading current payment limit...</Alert>
+        )}
+        {limitError && (
+          <Alert severity="error" sx={{ mb: 2 }} action={<Button onClick={() => setLimitRequest((request) => request + 1)}>Retry</Button>}>
+            {limitError}
+          </Alert>
+        )}
+        {paymentLimit && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Maximum cash payment: {formatCurrency(paymentLimit.maximumCashAmount)}.
+            {" "}Advance payments above the weekly installment are allowed up to this limit.
+            {paymentLimit.pendingAmount > 0 && ` Pending payments and their savings usage reserve ${formatCurrency(paymentLimit.pendingAmount)}.`}
+          </Alert>
+        )}
         {error && (
           <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
             {error}
@@ -360,6 +421,8 @@ export function PaymentDialog({
             label="Payment Amount"
             type="number"
             value={paymentAmount}
+            error={Boolean(amountError)}
+            inputProps={{ min: 0, step: "0.01", max: paymentLimit?.maximumCashAmount }}
             onChange={(e) => setPaymentAmount(e.target.value)}
             InputProps={{
               startAdornment: (
@@ -367,7 +430,7 @@ export function PaymentDialog({
               ),
             }}
             sx={{ mb: 2 }}
-            helperText={`Weekly payment: ${formatCurrency(weeklyPayment)}`}
+            helperText={amountError ?? `Weekly payment: ${formatCurrency(weeklyPayment)}${paymentLimit ? ` · Maximum cash: ${formatCurrency(paymentLimit.maximumCashAmount)}` : ""}`}
           />
 
           {/* Savings Usage Option */}

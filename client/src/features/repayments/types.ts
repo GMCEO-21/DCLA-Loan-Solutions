@@ -78,3 +78,15 @@ export interface RepaymentAllocationPreview {
     unapplied: number;
   };
 }
+
+export interface RepaymentPaymentLimit {
+  loanId: string;
+  loanStatus: string;
+  balance: number;
+  chargesOutstanding: number;
+  pendingAmount: number;
+  maximumCashAmount: number;
+  weeklyPaymentTarget: number;
+  availableSavings: number;
+  asOfDate: string;
+}
